@@ -85,8 +85,8 @@ google-services.json
 
 # Android
 local.properties
-RehabConnect-Android/app/build/
-RehabConnect-Android/build/
+Android/app/build/
+Android/build/
 
 # Dev folder
 Dev/
