@@ -1,0 +1,115 @@
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
+    id("com.google.gms.google-services")
+}
+
+android {
+    namespace = "com.srcardiocare"
+    compileSdk = 36
+
+    defaultConfig {
+        applicationId = "com.srcardiocare"
+        minSdk = 26
+        targetSdk = 36
+        versionCode = 1
+        versionName = "1.0.0"
+
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+        debug {
+            isMinifyEnabled = false
+            // applicationIdSuffix removed — google-services.json only has com.srcardiocare
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    buildFeatures {
+        compose = true
+    }
+}
+
+dependencies {
+    // Compose BOM — single version for all Compose libraries
+    val composeBom = platform("androidx.compose:compose-bom:2025.05.00")
+    implementation(composeBom)
+
+    // Compose UI
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-graphics")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.compose.material3:material3")
+    // material-icons-extended is ~15 MB but R8 dead-code strips it to only the
+    // icons your code references in release builds (isMinifyEnabled = true above).
+    // In debug, full dex is loaded — acceptable trade-off for dev tooling.
+    implementation("androidx.compose.material:material-icons-extended")
+
+    // Activity & Lifecycle
+    implementation("androidx.activity:activity-compose:1.10.1")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.0")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.0")
+
+    // Navigation Compose
+    implementation("androidx.navigation:navigation-compose:2.9.0")
+
+    // Core & AppCompat
+    implementation("androidx.core:core-ktx:1.16.0")
+
+    // Security (EncryptedSharedPreferences)
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
+    // Firebase BOM — single version for all Firebase libraries
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-auth-ktx")
+    implementation("com.google.firebase:firebase-firestore-ktx")
+    implementation("com.google.firebase:firebase-storage-ktx")
+
+    // Google Sign-In (for YouTube OAuth2 upload scope)
+    implementation("com.google.android.gms:play-services-auth:21.3.0")
+
+    // WebView (for YouTube embed playback)
+    implementation("androidx.webkit:webkit:1.12.1")
+
+    // Networking — Retrofit + OkHttp (kept for potential future REST APIs)
+    implementation("com.squareup.retrofit2:retrofit:2.11.0")
+    implementation("com.squareup.retrofit2:converter-gson:2.11.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+
+    // Coroutines
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+
+    // Baseline Profiles — speeds up cold start by pre-compiling hot paths via ART.
+    // Generate a profile once: ./gradlew :app:generateBaselineProfile
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
+
+    // Debug tooling
+    debugImplementation("androidx.compose.ui:ui-tooling")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+
+    // Testing
+    testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
+    androidTestImplementation(composeBom)
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+}

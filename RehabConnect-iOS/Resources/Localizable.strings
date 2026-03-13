@@ -1,0 +1,122 @@
+/* Localizable.strings
+   SR-Cardiocare — English (Base) */
+
+// MARK: - Tabs
+"tab_home" = "Home";
+"tab_schedule" = "Schedule";
+"tab_exercises" = "Exercises";
+"tab_analytics" = "Analytics";
+
+// MARK: - Login
+"login_title" = "Welcome Back";
+"login_subtitle" = "Sign in to continue your recovery journey";
+"login_email_placeholder" = "Email address";
+"login_password_placeholder" = "Password";
+"login_button" = "Sign In";
+"login_error_empty_fields" = "Please enter your email and password.";
+"login_error_invalid_password" = "Password must be at least 8 characters with upper, lower, and digit.";
+"login_error_generic" = "Login failed. Please try again.";
+
+// MARK: - Auth Errors
+"auth_error_invalid_password" = "Invalid password format.";
+"auth_error_session_expired" = "Your session has expired. Please sign in again.";
+
+// MARK: - Network Errors
+"error_invalid_url" = "Invalid server URL.";
+"error_no_data" = "No data received from server.";
+"error_unauthorized" = "Unauthorized. Please sign in again.";
+"error_token_refresh_failed" = "Session refresh failed. Please sign in again.";
+
+// MARK: - Onboarding
+"onboarding_welcome_title" = "Your Recovery\nStarts Here";
+"onboarding_welcome_description" = "Personalised rehabilitation programs designed with your physiotherapist, tracked in real time.";
+"onboarding_next_button" = "Next";
+"onboarding_skip_button" = "Skip";
+"onboarding_step_2" = "Step 2 of 3";
+"onboarding_injury_title" = "Where does it hurt?";
+"onboarding_injury_desc" = "Select all areas that apply. This helps us tailor your recovery plan.";
+"onboarding_goals_title" = "What's your primary goal?";
+"onboarding_goals_desc" = "This helps us personalise your rehabilitation programme.";
+"onboarding_get_started" = "Get Started";
+
+// MARK: - Patient Home
+"good_morning" = "Good Morning";
+"good_afternoon" = "Good Afternoon";
+"good_evening" = "Good Evening";
+"completed" = "Completed";
+"patient_home_progress_detail" = "3 of 5 exercises done";
+"patient_home_todays_plan" = "Today's Plan";
+"patient_home_daily_exercises" = "Daily Exercises";
+"view_all" = "View All";
+
+// MARK: - Workout Player
+"workout_player_title" = "Workout";
+"workout_instructions" = "Keep your back straight and core engaged. Breathe steadily throughout the movement.";
+"workout_finish_set" = "Finish Set";
+
+// MARK: - Post-Workout Feedback
+"feedback_workout_complete" = "Workout Complete!";
+"feedback_great_job" = "Great job! Let us know how you felt.";
+"feedback_pain_header" = "Pain Level During Exercise";
+"no_pain" = "No Pain";
+"severe_pain" = "Severe";
+"feedback_difficulty_header" = "How Difficult Was It?";
+"feedback_notes_header" = "Additional Notes";
+"feedback_submit" = "Submit Feedback";
+
+// MARK: - Doctor Dashboard
+"welcome_back" = "Welcome back, Dr. Jenkins";
+"doctor_search_placeholder" = "Search patients…";
+"patient_overview" = "Patient Overview";
+
+// MARK: - Add Patient
+"add_patient_title" = "Add New Patient";
+"patient_id" = "Patient ID";
+"full_name" = "Full Name";
+"age" = "Age";
+"gender" = "Gender";
+"email" = "Email";
+"phone" = "Phone";
+"injury_type" = "Injury Type";
+"additional_notes" = "Additional Notes";
+"save_patient" = "Save Patient";
+"error_name_required" = "Full name is required.";
+"error" = "Error";
+"ok" = "OK";
+
+// MARK: - Patient Profile
+"send_feedback" = "Send Feedback";
+"edit_plan" = "Edit Plan";
+"compliance" = "Compliance";
+"pain_level" = "Pain Level";
+"progress" = "Progress";
+"recent_exercises" = "Recent Exercises";
+
+// MARK: - Exercise Library
+"exercise_library_title" = "Exercise Library";
+"search_exercises" = "Search exercises…";
+
+// MARK: - Video Upload
+"video_upload_title" = "Upload Exercise Video";
+"video_upload_tap" = "Tap to select video";
+"video_upload_formats" = "MP4, MOV — Max 500 MB";
+"exercise_name" = "Exercise Name";
+"category" = "Category";
+"difficulty" = "Difficulty";
+"duration" = "Duration (seconds)";
+"instructions" = "Instructions";
+"upload_video_button" = "Upload Video";
+
+// MARK: - Schedule
+"schedule_title" = "Schedule";
+"today" = "Today";
+
+// MARK: - Analytics
+"analytics_title" = "My Progress";
+"analytics_subtitle" = "Track your recovery journey";
+"weekly_performance" = "Weekly Performance";
+"pain_trend" = "Pain Trend";
+"streak" = "Streak";
+
+// MARK: - Notifications
+"notifications_title" = "Notifications";
