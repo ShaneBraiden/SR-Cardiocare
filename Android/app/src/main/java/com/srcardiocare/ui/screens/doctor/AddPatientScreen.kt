@@ -171,10 +171,13 @@ fun AddPatientScreen(onSaved: () -> Unit, onBack: () -> Unit) {
                     val firstName = nameParts.firstOrNull() ?: ""
                     val lastName = if (nameParts.size > 1) nameParts[1] else ""
 
+                    // Save the creating doctor/admin's UID before register() changes auth context
+                    val creatingDoctorUid = FirebaseService.currentUID
+
                     scope.launch {
                         try {
                             // Register the patient with default password
-                            val userData = FirebaseService.register(
+                            FirebaseService.register(
                                 email = email.trim(),
                                 password = "password@123",
                                 firstName = firstName,
@@ -182,8 +185,7 @@ fun AddPatientScreen(onSaved: () -> Unit, onBack: () -> Unit) {
                                 role = "patient"
                             )
 
-                            // Now sign back in as the doctor (register signs in as the new user)
-                            // We need to update the patient's profile with extra fields
+                            // register() signs in as the new patient — update their profile
                             val patientUid = FirebaseService.currentUID
                             if (patientUid != null) {
                                 val extraFields = mutableMapOf<String, Any>()
@@ -192,6 +194,11 @@ fun AddPatientScreen(onSaved: () -> Unit, onBack: () -> Unit) {
                                 if (age.isNotBlank()) extraFields["age"] = age.trim().toIntOrNull() ?: age.trim()
                                 extraFields["gender"] = genders[selectedGender]
                                 if (notes.isNotBlank()) extraFields["notes"] = notes.trim()
+
+                                // Link this patient to the creating doctor
+                                if (creatingDoctorUid != null) {
+                                    extraFields["assignedDoctorId"] = creatingDoctorUid
+                                }
 
                                 if (extraFields.isNotEmpty()) {
                                     FirebaseService.updateUser(extraFields)

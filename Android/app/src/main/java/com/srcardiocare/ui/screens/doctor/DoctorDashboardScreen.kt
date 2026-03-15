@@ -83,13 +83,25 @@ fun DoctorDashboardScreen(
                 val lName = data["lastName"]  as? String ?: ""
                 val injuries = (data["injuries"] as? List<*>)?.firstOrNull()?.toString() ?: "No condition listed"
                 val initials = "${fName.firstOrNull() ?: ""}${lName.firstOrNull() ?: ""}".uppercase()
+
+                // Compute online status from lastSeen
+                val lastSeen = data["lastSeen"]
+                val isOnline = when (lastSeen) {
+                    is com.google.firebase.Timestamp -> {
+                        val seenMs = lastSeen.toDate().time
+                        val nowMs = System.currentTimeMillis()
+                        (nowMs - seenMs) < 5 * 60 * 1000 // Active within 5 minutes
+                    }
+                    else -> false
+                }
+
                 PatientItem(
                     id          = id,
                     name        = "$fName $lName".trim().ifBlank { "Unknown" },
                     condition   = injuries,
                     status      = PatientStatus.ON_TRACK,
                     compliance  = 0,
-                    isOnline    = false,
+                    isOnline    = isOnline,
                     initials    = initials.ifBlank { "?" }
                 )
             }

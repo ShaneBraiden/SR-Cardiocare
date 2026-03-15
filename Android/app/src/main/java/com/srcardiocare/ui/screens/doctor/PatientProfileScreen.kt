@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -41,6 +42,13 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
     var availableExercises by remember { mutableStateOf<List<Pair<String, Map<String, Any?>>>>(emptyList()) }
     var isLoadingExercises by remember { mutableStateOf(false) }
     var assignMessage by remember { mutableStateOf<String?>(null) }
+
+    // Admin doctor assignment state
+    var currentUserRole by remember { mutableStateOf("") }
+    var allDoctors by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) } // id to name
+    var currentAssignedDoctorId by remember { mutableStateOf("") }
+    var showDoctorPicker by remember { mutableStateOf(false) }
+    var isAssigningDoctor by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -87,7 +95,31 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
     }
 
     LaunchedEffect(patientId) {
+        // Load current user role
+        try {
+            val uid = FirebaseService.currentUID
+            if (uid != null) {
+                val me = FirebaseService.fetchUser(uid)
+                currentUserRole = (me["role"] as? String ?: "").lowercase()
+            }
+        } catch (_: Exception) { }
+
         loadPatientData()
+
+        // Fetch assigned doctor and all doctors (for admin picker)
+        try {
+            val userData = FirebaseService.fetchUser(patientId)
+            currentAssignedDoctorId = userData["assignedDoctorId"] as? String ?: ""
+            if (currentUserRole == "admin") {
+                val doctors = FirebaseService.fetchAllDoctors()
+                allDoctors = doctors.map { (id, data) ->
+                    val fName = data["firstName"] as? String ?: ""
+                    val lName = data["lastName"] as? String ?: ""
+                    id to "Dr. $lName".let { if (lName.isBlank()) fName else it }
+                }
+            }
+        } catch (_: Exception) { }
+
         isLoading = false
     }
 
@@ -299,6 +331,101 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                     )
                 ) {
                     Text("📹  Assign Exercise", fontWeight = FontWeight.SemiBold)
+                }
+            }
+
+            // ── Admin Doctor Assignment ───────────────────────────────────
+            if (currentUserRole == "admin" && allDoctors.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(DesignTokens.Spacing.XL))
+
+                Text(
+                    "Assigned Doctor",
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.padding(horizontal = DesignTokens.Spacing.XL)
+                )
+                Spacer(modifier = Modifier.height(DesignTokens.Spacing.SM))
+
+                val currentDoctorName = allDoctors.firstOrNull { it.first == currentAssignedDoctorId }?.second ?: "Not Assigned"
+
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = DesignTokens.Spacing.XL)
+                        .clickable { showDoctorPicker = true },
+                    shape = RoundedCornerShape(DesignTokens.Radius.LG),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(DesignTokens.Spacing.MD),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text("Current: $currentDoctorName", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                            Text("Tap to change", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        if (isAssigningDoctor) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = DesignTokens.Colors.Primary, strokeWidth = 2.dp)
+                        } else {
+                            Text("✏️", style = MaterialTheme.typography.titleMedium)
+                        }
+                    }
+                }
+
+                if (showDoctorPicker) {
+                    AlertDialog(
+                        onDismissRequest = { showDoctorPicker = false },
+                        title = { Text("Assign Doctor", fontWeight = FontWeight.Bold) },
+                        text = {
+                            LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
+                                items(allDoctors) { (docId, docName) ->
+                                    val isSelected = docId == currentAssignedDoctorId
+                                    Card(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp)
+                                            .clickable {
+                                                isAssigningDoctor = true
+                                                showDoctorPicker = false
+                                                scope.launch {
+                                                    try {
+                                                        com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                                                            .collection("users").document(patientId)
+                                                            .update("assignedDoctorId", docId)
+                                                            .await()
+                                                        currentAssignedDoctorId = docId
+                                                        assignMessage = "✅ Doctor changed to $docName"
+                                                    } catch (e: Exception) {
+                                                        assignMessage = "❌ Failed: ${e.message}"
+                                                    }
+                                                    isAssigningDoctor = false
+                                                }
+                                            },
+                                        shape = RoundedCornerShape(DesignTokens.Radius.Base),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = if (isSelected) DesignTokens.Colors.Primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface
+                                        )
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(DesignTokens.Spacing.MD),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(docName, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+                                            if (isSelected) {
+                                                Text("✓", color = DesignTokens.Colors.Primary, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = { showDoctorPicker = false }) { Text("Close") }
+                        }
+                    )
                 }
             }
 

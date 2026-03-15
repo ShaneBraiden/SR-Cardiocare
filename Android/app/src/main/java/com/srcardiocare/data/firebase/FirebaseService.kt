@@ -34,6 +34,8 @@ object FirebaseService {
     suspend fun login(email: String, password: String): Map<String, Any?> {
         val result = auth.signInWithEmailAndPassword(email, password).await()
         val uid = result.user?.uid ?: throw Exception("Login failed: no user")
+        // Update last seen on login
+        updateLastSeen()
         return fetchUser(uid)
     }
 
@@ -85,6 +87,15 @@ object FirebaseService {
     suspend fun updateUser(fields: Map<String, Any>) {
         val uid = currentUID ?: throw Exception("Not authenticated")
         db.collection("users").document(uid).update(fields).await()
+    }
+
+    /** Update lastSeen timestamp */
+    suspend fun updateLastSeen() {
+        val uid = currentUID ?: return
+        try {
+            db.collection("users").document(uid)
+                .update("lastSeen", FieldValue.serverTimestamp()).await()
+        } catch (_: Exception) { }
     }
 
     // ── Patients ────────────────────────────────────────────────────────

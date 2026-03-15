@@ -48,6 +48,9 @@ fun PatientHomeScreen(
             val userData = FirebaseService.fetchUser(uid)
             userName = userData["firstName"] as? String ?: ""
 
+            // Update last seen for online tracking
+            FirebaseService.updateLastSeen()
+
             val plans = FirebaseService.fetchPlans(uid)
             val activePlan = plans.firstOrNull { (it.second["isActive"] as? Boolean) == true }
             if (activePlan != null) {
@@ -60,6 +63,7 @@ fun PatientHomeScreen(
 
                 exercises = planExercises.mapIndexed { index, ex ->
                     val exMap = ex as? Map<*, *> ?: return@mapIndexed null
+                    val name = exMap["name"] as? String ?: "Exercise ${index + 1}"
                     val sets = (exMap["customSets"] as? Number)?.toInt() ?: 0
                     val reps = (exMap["customReps"] as? Number)?.toInt() ?: 0
                     val status = when {
@@ -67,7 +71,7 @@ fun PatientHomeScreen(
                         index == completedCount -> ExStatus.ACTIVE
                         else -> ExStatus.PENDING
                     }
-                    ExItem("Exercise ${index + 1}", "$sets Sets • $reps Reps", status)
+                    ExItem(name, "$sets Sets • $reps Reps", status)
                 }.filterNotNull()
             }
         } catch (_: Exception) { }
