@@ -9,7 +9,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -89,10 +93,10 @@ fun PatientHomeScreen(
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
             NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                NavigationBarItem(selected = true, onClick = {}, label = { Text("Home") }, icon = { Text("🏠") })
-                NavigationBarItem(selected = false, onClick = onScheduleTap, label = { Text("Schedule") }, icon = { Text("📅") })
-                NavigationBarItem(selected = false, onClick = onAnalyticsTap, label = { Text("Progress") }, icon = { Text("📊") })
-                NavigationBarItem(selected = false, onClick = onProfile, label = { Text("Profile") }, icon = { Text("👤") })
+                NavigationBarItem(selected = true, onClick = {}, label = { Text("Home") }, icon = { Icon(Icons.Default.Home, contentDescription = "Home") })
+                NavigationBarItem(selected = false, onClick = onScheduleTap, label = { Text("Schedule") }, icon = { Icon(Icons.Default.CalendarMonth, contentDescription = "Schedule") })
+                NavigationBarItem(selected = false, onClick = onAnalyticsTap, label = { Text("Progress") }, icon = { Icon(Icons.Default.Insights, contentDescription = "Progress") })
+                NavigationBarItem(selected = false, onClick = onProfile, label = { Text("Profile") }, icon = { Icon(Icons.Default.Person, contentDescription = "Profile") })
             }
         }
     ) { padding ->

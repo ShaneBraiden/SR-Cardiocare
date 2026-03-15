@@ -7,8 +7,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -143,7 +145,10 @@ fun ScheduleScreen(onBack: () -> Unit) {
             onDismissRequest = { if (!isSaving) showAddDialog = false },
             title = { Text("New Appointment", fontWeight = FontWeight.Bold) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()).imePadding(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     Text("Type", fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
                     SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                         appointmentTypes.take(3).forEachIndexed { index, label ->

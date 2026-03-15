@@ -38,6 +38,7 @@ sealed class Route(val path: String) {
     object AddPatient : Route("doctor/add-patient")
     object AddDoctor : Route("doctor/add-doctor")
     object PatientProfile : Route("doctor/patient/{patientId}")
+    object AdminDoctorProfile : Route("admin/doctor/{doctorId}")
     object ExerciseLibrary : Route("exercises/library")
     object VideoUpload : Route("exercises/upload")
     object Schedule : Route("schedule")
@@ -112,6 +113,7 @@ fun SRCardiocareNavGraph(
         composable(Route.DoctorDashboard.path) {
             DoctorDashboardScreen(
                 onPatientTap = { id -> navController.navigate("doctor/patient/$id") },
+                onDoctorTap = { id -> navController.navigate("admin/doctor/$id") },
                 onAddPatient = { navController.navigate(Route.AddPatient.path) },
                 onAddDoctor = { navController.navigate(Route.AddDoctor.path) },
                 onExerciseLibrary = { navController.navigate(Route.ExerciseLibrary.path) },
@@ -141,6 +143,15 @@ fun SRCardiocareNavGraph(
                 patientId = patientId,
                 onBack = { navController.popBackStack() },
                 onVideoUpload = { navController.navigate(Route.VideoUpload.path) }
+            )
+        }
+
+        composable(Route.AdminDoctorProfile.path) { backStackEntry ->
+            val doctorId = backStackEntry.arguments?.getString("doctorId") ?: ""
+            com.srcardiocare.ui.screens.doctor.AdminDoctorProfileScreen(
+                doctorId = doctorId,
+                onBack = { navController.popBackStack() },
+                onDeleted = { navController.popBackStack() }
             )
         }
 

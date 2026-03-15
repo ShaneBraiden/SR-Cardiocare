@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -68,6 +69,7 @@ fun AddDoctorScreen(onSaved: () -> Unit, onBack: () -> Unit) {
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
+                .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = DesignTokens.Spacing.XL)
         ) {
@@ -152,19 +154,25 @@ fun AddDoctorScreen(onSaved: () -> Unit, onBack: () -> Unit) {
 
             Button(
                 onClick = {
-                    if (fullName.isBlank() || email.isBlank()) {
-                        errorMessage = "Name and Email are required"
-                        return@Button
-                    }
-                    isLoading = true
                     val nameParts = fullName.trim().split(" ", limit = 2)
                     val firstName = nameParts.firstOrNull() ?: ""
                     val lastName = if (nameParts.size > 1) nameParts[1] else ""
+                    val trimmedEmail = email.trim()
+
+                    if (firstName.isBlank() || lastName.isBlank() || trimmedEmail.isBlank()) {
+                        errorMessage = "First Name, Last Name, and Email are required"
+                        return@Button
+                    }
+                    if (!android.util.Patterns.EMAIL_ADDRESS.matcher(trimmedEmail).matches()) {
+                        errorMessage = "Please enter a valid email address"
+                        return@Button
+                    }
+                    isLoading = true
 
                     scope.launch {
                         try {
-                            // Register the doctor with default password
-                            FirebaseService.register(
+                            // Create account WITHOUT switching auth session
+                            val newDoctorUid = FirebaseService.registerOther(
                                 email = email.trim(),
                                 password = "password@123",
                                 firstName = firstName,
@@ -172,20 +180,22 @@ fun AddDoctorScreen(onSaved: () -> Unit, onBack: () -> Unit) {
                                 role = "doctor"
                             )
 
-                            // Update the new doctor's profile with extra fields
-                            val doctorUid = FirebaseService.currentUID
-                            if (doctorUid != null) {
-                                val extraFields = mutableMapOf<String, Any>()
-                                if (phone.isNotBlank()) extraFields["phone"] = phone.trim()
-                                if (speciality.isNotBlank()) extraFields["speciality"] = speciality.trim()
-                                if (licenseNumber.isNotBlank()) extraFields["licenseNumber"] = licenseNumber.trim()
-                                if (clinicName.isNotBlank()) extraFields["clinicName"] = clinicName.trim()
+                            // Write extra fields directly to the new doctor's doc
+                            val extraFields = mutableMapOf<String, Any>()
+                            if (phone.isNotBlank()) extraFields["phone"] = phone.trim()
+                            if (speciality.isNotBlank()) extraFields["speciality"] = speciality.trim()
+                            if (licenseNumber.isNotBlank()) extraFields["licenseNumber"] = licenseNumber.trim()
+                            if (clinicName.isNotBlank()) extraFields["clinicName"] = clinicName.trim()
 
-                                if (extraFields.isNotEmpty()) {
-                                    FirebaseService.updateUser(extraFields)
-                                }
+                            if (extraFields.isNotEmpty()) {
+                                com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                                    .collection("users").document(newDoctorUid)
+                                    .update(extraFields)
+                                    .await()
                             }
 
+                            // Show success and navigate back
+                            snackbarHostState.showSnackbar("✅ Doctor account created successfully!")
                             onSaved()
                         } catch (e: Exception) {
                             isLoading = false

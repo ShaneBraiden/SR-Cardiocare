@@ -3,6 +3,7 @@
 // YouTube: Video storage via Data API v3 (free quota — unlisted uploads)
 package com.srcardiocare.data.firebase
 
+import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.userProfileChangeRequest
 import com.google.firebase.firestore.FieldValue
@@ -68,6 +69,61 @@ object FirebaseService {
         return userData
     }
 
+    /**
+     * Register a new user WITHOUT switching the current auth session.
+     * Uses a temporary secondary FirebaseApp so the doctor/admin stays signed in.
+     * Returns the new user's UID.
+     */
+    suspend fun registerOther(
+        email: String,
+        password: String,
+        firstName: String,
+        lastName: String,
+        role: String
+    ): String {
+        val defaultApp = FirebaseApp.getInstance()
+        // Get or create secondary app
+        val secondaryApp = try {
+            FirebaseApp.getInstance("accountCreator")
+        } catch (_: Exception) {
+            FirebaseApp.initializeApp(
+                defaultApp.applicationContext,
+                defaultApp.options,
+                "accountCreator"
+            )
+        }
+
+        val secondaryAuth = FirebaseAuth.getInstance(secondaryApp)
+        try {
+            val result = secondaryAuth.createUserWithEmailAndPassword(email, password).await()
+            val newUid = result.user?.uid ?: throw Exception("Registration failed")
+
+            // Set display name on the secondary auth user
+            result.user?.updateProfile(
+                userProfileChangeRequest { displayName = "$firstName $lastName" }
+            )?.await()
+
+            // Sign out from secondary immediately
+            secondaryAuth.signOut()
+
+            // Write user doc using the PRIMARY Firestore (authenticated as doctor/admin)
+            val userData = hashMapOf<String, Any?>(
+                "email" to email,
+                "firstName" to firstName,
+                "lastName" to lastName,
+                "role" to role,
+                "phone" to null,
+                "profileImageUrl" to null,
+                "createdAt" to FieldValue.serverTimestamp()
+            )
+            db.collection("users").document(newUid).set(userData).await()
+            return newUid
+        } catch (e: Exception) {
+            secondaryAuth.signOut()
+            throw e
+        }
+    }
+
     fun logout() {
         auth.signOut()
     }
@@ -98,6 +154,16 @@ object FirebaseService {
         } catch (_: Exception) { }
     }
 
+    /** Update another user's fields by their ID (for admin/doctor). */
+    suspend fun updateUserById(uid: String, fields: Map<String, Any>) {
+        db.collection("users").document(uid).update(fields).await()
+    }
+
+    /** Delete a user's Firestore document (for admin). Note: Auth account must be deleted via Admin SDK. */
+    suspend fun deleteUser(uid: String) {
+        db.collection("users").document(uid).delete().await()
+    }
+
     // ── Patients ────────────────────────────────────────────────────────
 
     /** Fetch patients assigned to a specific doctor (for doctor role). */
@@ -114,6 +180,12 @@ object FirebaseService {
         val snapshot = db.collection("users")
             .whereEqualTo("role", "patient")
             .get().await()
+        return snapshot.documents.map { it.id to (it.data ?: emptyMap()) }
+    }
+
+    /** Fetch ALL users regardless of role (for admin role). */
+    suspend fun fetchAllUsers(): List<Pair<String, Map<String, Any?>>> {
+        val snapshot = db.collection("users").get().await()
         return snapshot.documents.map { it.id to (it.data ?: emptyMap()) }
     }
 

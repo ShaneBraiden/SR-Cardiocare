@@ -2,8 +2,10 @@
 package com.srcardiocare.ui.screens.auth
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -41,7 +43,9 @@ fun LoginScreen(onLoginSuccess: (role: String) -> Unit) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = DesignTokens.Spacing.XL),
+                .padding(horizontal = DesignTokens.Spacing.XL)
+                .imePadding()
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -104,8 +108,13 @@ fun LoginScreen(onLoginSuccess: (role: String) -> Unit) {
 
             Button(
                 onClick = {
-                    if (email.isBlank() || password.isBlank()) {
+                    val trimmedEmail = email.trim()
+                    if (trimmedEmail.isBlank() || password.isBlank()) {
                         errorMessage = "Please enter your email and password."
+                        return@Button
+                    }
+                    if (!android.util.Patterns.EMAIL_ADDRESS.matcher(trimmedEmail).matches()) {
+                        errorMessage = "Please enter a valid email address."
                         return@Button
                     }
                     isLoading = true

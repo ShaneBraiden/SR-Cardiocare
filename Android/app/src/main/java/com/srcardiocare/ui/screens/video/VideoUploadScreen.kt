@@ -76,6 +76,7 @@ fun VideoUploadScreen(onBack: () -> Unit, onUploaded: () -> Unit) {
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
+                .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = DesignTokens.Spacing.XL)
         ) {

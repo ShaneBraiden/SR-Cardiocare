@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,6 +60,7 @@ fun AddPatientScreen(onSaved: () -> Unit, onBack: () -> Unit) {
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
+                .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = DesignTokens.Spacing.XL)
         ) {
@@ -162,22 +164,25 @@ fun AddPatientScreen(onSaved: () -> Unit, onBack: () -> Unit) {
 
             Button(
                 onClick = {
-                    if (fullName.isBlank() || email.isBlank()) {
+                    val trimmedEmail = email.trim()
+                    if (fullName.isBlank() || trimmedEmail.isBlank()) {
                         errorMessage = "Name and Email are required"
+                        return@Button
+                    }
+                    if (!android.util.Patterns.EMAIL_ADDRESS.matcher(trimmedEmail).matches()) {
+                        errorMessage = "Please enter a valid email address"
                         return@Button
                     }
                     isLoading = true
                     val nameParts = fullName.trim().split(" ", limit = 2)
                     val firstName = nameParts.firstOrNull() ?: ""
                     val lastName = if (nameParts.size > 1) nameParts[1] else ""
-
-                    // Save the creating doctor/admin's UID before register() changes auth context
                     val creatingDoctorUid = FirebaseService.currentUID
 
                     scope.launch {
                         try {
-                            // Register the patient with default password
-                            FirebaseService.register(
+                            // Create account WITHOUT switching auth session
+                            val newPatientUid = FirebaseService.registerOther(
                                 email = email.trim(),
                                 password = "password@123",
                                 firstName = firstName,
@@ -185,26 +190,25 @@ fun AddPatientScreen(onSaved: () -> Unit, onBack: () -> Unit) {
                                 role = "patient"
                             )
 
-                            // register() signs in as the new patient — update their profile
-                            val patientUid = FirebaseService.currentUID
-                            if (patientUid != null) {
-                                val extraFields = mutableMapOf<String, Any>()
-                                if (phone.isNotBlank()) extraFields["phone"] = phone.trim()
-                                if (injuryType.isNotBlank()) extraFields["injuries"] = listOf(injuryType.trim())
-                                if (age.isNotBlank()) extraFields["age"] = age.trim().toIntOrNull() ?: age.trim()
-                                extraFields["gender"] = genders[selectedGender]
-                                if (notes.isNotBlank()) extraFields["notes"] = notes.trim()
-
-                                // Link this patient to the creating doctor
-                                if (creatingDoctorUid != null) {
-                                    extraFields["assignedDoctorId"] = creatingDoctorUid
-                                }
-
-                                if (extraFields.isNotEmpty()) {
-                                    FirebaseService.updateUser(extraFields)
-                                }
+                            // Write extra fields directly to the new patient's doc
+                            val extraFields = mutableMapOf<String, Any>()
+                            if (phone.isNotBlank()) extraFields["phone"] = phone.trim()
+                            if (injuryType.isNotBlank()) extraFields["injuries"] = listOf(injuryType.trim())
+                            if (age.isNotBlank()) extraFields["age"] = age.trim().toIntOrNull() ?: age.trim()
+                            extraFields["gender"] = genders[selectedGender]
+                            if (notes.isNotBlank()) extraFields["notes"] = notes.trim()
+                            if (creatingDoctorUid != null) {
+                                extraFields["assignedDoctorId"] = creatingDoctorUid
+                            }
+                            if (extraFields.isNotEmpty()) {
+                                com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                                    .collection("users").document(newPatientUid)
+                                    .update(extraFields)
+                                    .await()
                             }
 
+                            // Show success and navigate back
+                            snackbarHostState.showSnackbar("✅ Patient account created successfully!")
                             onSaved()
                         } catch (e: Exception) {
                             isLoading = false
