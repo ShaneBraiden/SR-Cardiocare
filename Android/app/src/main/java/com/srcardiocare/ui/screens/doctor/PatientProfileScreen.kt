@@ -34,8 +34,14 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
     var complianceText by remember { mutableStateOf("--") }
     var painText by remember { mutableStateOf("--") }
     var progressText by remember { mutableStateOf("--") }
-    var exerciseItems by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    var exerciseItems by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
+
+    // New actions state
+    var isEditingPlan by remember { mutableStateOf(false) }
+    var showFeedbackDialog by remember { mutableStateOf(false) }
+    var feedbackMessage by remember { mutableStateOf("") }
+    var isSendingFeedback by remember { mutableStateOf(false) }
 
     // Exercise assignment state
     var showAssignDialog by remember { mutableStateOf(false) }
@@ -77,11 +83,7 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
             if (activePlan != null) {
                 val exercises = activePlan.second["exercises"] as? List<*> ?: emptyList<Any>()
                 exerciseItems = exercises.mapNotNull { ex ->
-                    val exMap = ex as? Map<*, *> ?: return@mapNotNull null
-                    val name = exMap["name"] as? String ?: "Exercise"
-                    val sets = (exMap["customSets"] as? Number)?.toInt() ?: 0
-                    val reps = (exMap["customReps"] as? Number)?.toInt() ?: 0
-                    name to "$sets Sets • $reps Reps"
+                    (ex as? Map<*, *>)?.mapKeys { it.key.toString() } as? Map<String, Any>
                 }
             }
 
@@ -216,6 +218,53 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
         )
     }
 
+    if (showFeedbackDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!isSendingFeedback) showFeedbackDialog = false },
+            title = { Text("Send Feedback to Patient", fontWeight = FontWeight.Bold) },
+            text = {
+                OutlinedTextField(
+                    value = feedbackMessage,
+                    onValueChange = { feedbackMessage = it },
+                    label = { Text("Message") },
+                    modifier = Modifier.fillMaxWidth().height(120.dp),
+                    shape = RoundedCornerShape(DesignTokens.Radius.Base),
+                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = DesignTokens.Colors.Primary)
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        isSendingFeedback = true
+                        scope.launch {
+                            try {
+                                FirebaseService.sendFeedback(patientId, feedbackMessage.trim())
+                                assignMessage = "✅ Feedback sent"
+                                showFeedbackDialog = false
+                                feedbackMessage = ""
+                            } catch (e: Exception) {
+                                assignMessage = "❌ Failed to send feedback"
+                            }
+                            isSendingFeedback = false
+                        }
+                    },
+                    enabled = !isSendingFeedback && feedbackMessage.isNotBlank()
+                ) {
+                    if (isSendingFeedback) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = DesignTokens.Colors.Primary, strokeWidth = 2.dp)
+                    } else {
+                        Text("Send")
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showFeedbackDialog = false }, enabled = !isSendingFeedback) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -293,7 +342,7 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.MD)) {
                     Button(
-                        onClick = { /* Send feedback */ },
+                        onClick = { showFeedbackDialog = true },
                         modifier = Modifier.weight(1f).height(48.dp),
                         shape = RoundedCornerShape(DesignTokens.Radius.Base),
                         colors = ButtonDefaults.buttonColors(containerColor = DesignTokens.Colors.Primary)
@@ -301,12 +350,12 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                         Text("Send Feedback", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodySmall)
                     }
                     OutlinedButton(
-                        onClick = { /* Edit plan */ },
+                        onClick = { isEditingPlan = !isEditingPlan },
                         modifier = Modifier.weight(1f).height(48.dp),
                         shape = RoundedCornerShape(DesignTokens.Radius.Base),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = DesignTokens.Colors.Primary)
                     ) {
-                        Text("Edit Plan", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodySmall)
+                        Text(if (isEditingPlan) "Done Editing" else "Edit Plan", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodySmall)
                     }
                 }
                 // Assign Exercise button — full width
@@ -469,7 +518,12 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
             }
 
             // Exercise items loaded from Firebase
-            exerciseItems.forEach { (name, detail) ->
+            exerciseItems.forEach { ex ->
+                val name = ex["name"] as? String ?: "Exercise"
+                val sets = (ex["customSets"] as? Number)?.toInt() ?: 0
+                val reps = (ex["customReps"] as? Number)?.toInt() ?: 0
+                val detail = "$sets Sets • $reps Reps"
+
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -491,9 +545,24 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                             Text("🏋️", style = MaterialTheme.typography.titleMedium)
                         }
                         Spacer(modifier = Modifier.width(DesignTokens.Spacing.MD))
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(name, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
                             Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        if (isEditingPlan) {
+                            IconButton(onClick = {
+                                scope.launch {
+                                    try {
+                                        FirebaseService.removeExerciseFromPlan(patientId, ex)
+                                        assignMessage = "✅ Removed $name"
+                                        loadPatientData() // reload list
+                                    } catch (e: Exception) {
+                                        assignMessage = "❌ Failed to remove exercise"
+                                    }
+                                }
+                            }) {
+                                Text("🗑️")
+                            }
                         }
                     }
                 }

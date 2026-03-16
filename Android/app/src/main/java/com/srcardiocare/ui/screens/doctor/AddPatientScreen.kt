@@ -4,6 +4,7 @@ package com.srcardiocare.ui.screens.doctor
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -11,6 +12,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.ui.theme.DesignTokens
@@ -118,6 +120,7 @@ fun AddPatientScreen(onSaved: () -> Unit, onBack: () -> Unit) {
                 value = phone, onValueChange = { phone = it },
                 label = { Text("Phone") }, placeholder = { Text("e.g. +1 555 123 4567") },
                 modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                 shape = RoundedCornerShape(DesignTokens.Radius.Base),
                 singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = DesignTokens.Colors.Primary)

@@ -274,6 +274,40 @@ object FirebaseService {
         }
     }
 
+    /**
+     * Removes a specific exercise from a patient's active plan.
+     */
+    suspend fun removeExerciseFromPlan(
+        patientId: String,
+        exerciseData: Map<String, Any>
+    ) {
+        val plans = fetchPlans(patientId)
+        val activePlan = plans.firstOrNull { (it.second["isActive"] as? Boolean) == true }
+        
+        if (activePlan != null) {
+            val planId = activePlan.first
+            db.collection("plans").document(planId).update(
+                "exercises", FieldValue.arrayRemove(exerciseData)
+            ).await()
+        }
+    }
+
+    /**
+     * Send feedback from doctor to patient.
+     */
+    suspend fun sendFeedback(patientId: String, message: String) {
+        val doctorId = currentUID ?: throw Exception("Not authenticated")
+        val ref = db.collection("feedback").document()
+        val data = hashMapOf<String, Any>(
+            "id" to ref.id,
+            "patientId" to patientId,
+            "doctorId" to doctorId,
+            "message" to message,
+            "createdAt" to FieldValue.serverTimestamp()
+        )
+        ref.set(data).await()
+    }
+
     // ── Workouts ────────────────────────────────────────────────────────
 
     suspend fun fetchWorkouts(patientId: String): List<Pair<String, Map<String, Any?>>> {
