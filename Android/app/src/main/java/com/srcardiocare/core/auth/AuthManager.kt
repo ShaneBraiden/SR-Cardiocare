@@ -4,6 +4,8 @@ package com.srcardiocare.core.auth
 import android.content.Context
 import android.content.SharedPreferences
 import com.google.firebase.auth.FirebaseAuth
+import com.srcardiocare.core.security.PasswordValidator
+import com.srcardiocare.core.security.SecurePreferences
 
 /**
  * Manages authentication state using Firebase Auth.
@@ -12,10 +14,7 @@ import com.google.firebase.auth.FirebaseAuth
  */
 class AuthManager(context: Context) {
 
-    private val prefs: SharedPreferences = context.getSharedPreferences(
-        "sr_cardiocare_prefs",
-        Context.MODE_PRIVATE
-    )
+    private val prefs: SharedPreferences = SecurePreferences.getInstance(context)
 
     private val auth = FirebaseAuth.getInstance()
 
@@ -44,12 +43,11 @@ class AuthManager(context: Context) {
     /**
      * Validates password meets minimum requirements:
      * 8+ characters, at least one uppercase, one lowercase, one digit.
+     * @deprecated Use PasswordValidator.validate() instead for consistent validation
      */
-    fun isValidPassword(password: String): Boolean {
-        if (password.length < 8) return false
-        if (!password.any { it.isUpperCase() }) return false
-        if (!password.any { it.isLowerCase() }) return false
-        if (!password.any { it.isDigit() }) return false
-        return true
-    }
+    @Deprecated(
+        message = "Use PasswordValidator.validate() instead",
+        replaceWith = ReplaceWith("PasswordValidator.validate(password).isValid")
+    )
+    fun isValidPassword(password: String): Boolean = PasswordValidator.validate(password).isValid
 }

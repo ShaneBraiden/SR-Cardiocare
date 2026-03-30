@@ -14,6 +14,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.google.firebase.auth.FirebaseAuth
+import com.srcardiocare.core.security.ErrorHandler
+import com.srcardiocare.core.security.InputValidator
+import com.srcardiocare.core.security.PasswordGenerator
 import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
@@ -78,7 +82,8 @@ fun AddDoctorScreen(onSaved: () -> Unit, onBack: () -> Unit) {
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
 
             OutlinedTextField(
-                value = fullName, onValueChange = { fullName = it },
+                value = fullName,
+                onValueChange = { fullName = InputValidator.limitLength(it, InputValidator.MaxLength.NAME) },
                 label = { Text("Full Name") }, placeholder = { Text("e.g. Dr. Jane Smith") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(DesignTokens.Radius.Base),
@@ -88,7 +93,8 @@ fun AddDoctorScreen(onSaved: () -> Unit, onBack: () -> Unit) {
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
 
             OutlinedTextField(
-                value = email, onValueChange = { email = it },
+                value = email,
+                onValueChange = { email = InputValidator.limitLength(it, InputValidator.MaxLength.EMAIL) },
                 label = { Text("Email") }, placeholder = { Text("e.g. jane@clinic.com") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(DesignTokens.Radius.Base),
@@ -98,7 +104,8 @@ fun AddDoctorScreen(onSaved: () -> Unit, onBack: () -> Unit) {
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
 
             OutlinedTextField(
-                value = phone, onValueChange = { phone = it },
+                value = phone,
+                onValueChange = { phone = InputValidator.limitLength(it, InputValidator.MaxLength.PHONE) },
                 label = { Text("Phone") }, placeholder = { Text("e.g. +1 555 123 4567") },
                 modifier = Modifier.fillMaxWidth(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
@@ -109,7 +116,8 @@ fun AddDoctorScreen(onSaved: () -> Unit, onBack: () -> Unit) {
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
 
             OutlinedTextField(
-                value = speciality, onValueChange = { speciality = it },
+                value = speciality,
+                onValueChange = { speciality = InputValidator.limitLength(it, InputValidator.MaxLength.SPECIALITY) },
                 label = { Text("Speciality") }, placeholder = { Text("e.g. Cardiology") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(DesignTokens.Radius.Base),
@@ -119,7 +127,8 @@ fun AddDoctorScreen(onSaved: () -> Unit, onBack: () -> Unit) {
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
 
             OutlinedTextField(
-                value = licenseNumber, onValueChange = { licenseNumber = it },
+                value = licenseNumber,
+                onValueChange = { licenseNumber = InputValidator.limitLength(it, InputValidator.MaxLength.LICENSE_NUMBER) },
                 label = { Text("License Number") }, placeholder = { Text("e.g. MED-12345") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(DesignTokens.Radius.Base),
@@ -129,7 +138,8 @@ fun AddDoctorScreen(onSaved: () -> Unit, onBack: () -> Unit) {
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
 
             OutlinedTextField(
-                value = clinicName, onValueChange = { clinicName = it },
+                value = clinicName,
+                onValueChange = { clinicName = InputValidator.limitLength(it, InputValidator.MaxLength.CLINIC_NAME) },
                 label = { Text("Clinic Name") }, placeholder = { Text("e.g. City Heart Clinic") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(DesignTokens.Radius.Base),
@@ -139,14 +149,14 @@ fun AddDoctorScreen(onSaved: () -> Unit, onBack: () -> Unit) {
 
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.SM))
 
-            // Default password info
+            // Password reset info
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(DesignTokens.Radius.Base),
                 colors = CardDefaults.cardColors(containerColor = DesignTokens.Colors.PrimaryLight.copy(alpha = 0.3f))
             ) {
                 Text(
-                    "ℹ️ Default password: password@123",
+                    "A password reset email will be sent to the doctor. They must set their own password before logging in.",
                     modifier = Modifier.padding(DesignTokens.Spacing.MD),
                     style = MaterialTheme.typography.bodySmall,
                     color = DesignTokens.Colors.PrimaryDark
@@ -157,35 +167,59 @@ fun AddDoctorScreen(onSaved: () -> Unit, onBack: () -> Unit) {
 
             Button(
                 onClick = {
-                    val nameParts = fullName.trim().split(" ", limit = 2)
+                    // Validate name
+                    val nameValidation = InputValidator.validateName(fullName, "Full Name")
+                    if (!nameValidation.isValid) {
+                        errorMessage = nameValidation.errorMessage
+                        return@Button
+                    }
+                    val nameParts = nameValidation.sanitizedValue.split(" ", limit = 2)
                     val firstName = nameParts.firstOrNull() ?: ""
                     val lastName = if (nameParts.size > 1) nameParts[1] else ""
-                    val trimmedEmail = email.trim()
 
-                    if (firstName.isBlank() || lastName.isBlank() || trimmedEmail.isBlank()) {
-                        errorMessage = "First Name, Last Name, and Email are required"
+                    if (firstName.isBlank() || lastName.isBlank()) {
+                        errorMessage = "Please enter both first and last name"
                         return@Button
                     }
-                    if (!android.util.Patterns.EMAIL_ADDRESS.matcher(trimmedEmail).matches()) {
-                        errorMessage = "Please enter a valid email address"
+
+                    // Validate email
+                    val emailValidation = InputValidator.validateEmail(email)
+                    if (!emailValidation.isValid) {
+                        errorMessage = emailValidation.errorMessage
                         return@Button
                     }
+
+                    // Validate phone (optional but must be valid format if provided)
+                    val phoneValidation = InputValidator.validatePhone(phone)
+                    if (!phoneValidation.isValid) {
+                        errorMessage = phoneValidation.errorMessage
+                        return@Button
+                    }
+
                     isLoading = true
 
                     scope.launch {
                         try {
+                            // Generate secure temporary password
+                            val tempPassword = PasswordGenerator.generateTemporaryPassword()
+
                             // Create account WITHOUT switching auth session
                             val newDoctorUid = FirebaseService.registerOther(
-                                email = email.trim(),
-                                password = "password@123",
+                                email = emailValidation.sanitizedValue,
+                                password = tempPassword,
                                 firstName = firstName,
                                 lastName = lastName,
                                 role = "doctor"
                             )
 
+                            // Send password reset email so user can set their own password
+                            FirebaseAuth.getInstance().sendPasswordResetEmail(emailValidation.sanitizedValue)
+
                             // Write extra fields directly to the new doctor's doc
                             val extraFields = mutableMapOf<String, Any>()
-                            if (phone.isNotBlank()) extraFields["phone"] = phone.trim()
+                            if (phoneValidation.sanitizedValue.isNotBlank()) {
+                                extraFields["phone"] = phoneValidation.sanitizedValue
+                            }
                             if (speciality.isNotBlank()) extraFields["speciality"] = speciality.trim()
                             if (licenseNumber.isNotBlank()) extraFields["licenseNumber"] = licenseNumber.trim()
                             if (clinicName.isNotBlank()) extraFields["clinicName"] = clinicName.trim()
@@ -198,11 +232,11 @@ fun AddDoctorScreen(onSaved: () -> Unit, onBack: () -> Unit) {
                             }
 
                             // Show success and navigate back
-                            snackbarHostState.showSnackbar("✅ Doctor account created successfully!")
+                            snackbarHostState.showSnackbar("Doctor account created! Password reset email sent.")
                             onSaved()
                         } catch (e: Exception) {
                             isLoading = false
-                            errorMessage = "Failed to add doctor: ${e.message}"
+                            errorMessage = ErrorHandler.getDisplayMessage(e, "add doctor")
                         }
                     }
                 },

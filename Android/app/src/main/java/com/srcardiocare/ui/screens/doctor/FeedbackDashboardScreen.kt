@@ -1,0 +1,129 @@
+// FeedbackDashboardScreen.kt — Replaced with a patient list for Chat & Feedbacks
+package com.srcardiocare.ui.screens.doctor
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.ui.theme.DesignTokens
+
+private data class ChatPatientItem(
+    val id: String,
+    val name: String,
+    val initials: String
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun FeedbackDashboardScreen(
+    onPatientTap: (String) -> Unit,
+    onBack: () -> Unit
+) {
+    var patients by remember { mutableStateOf<List<ChatPatientItem>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        try {
+            val uid = FirebaseService.currentUID ?: return@LaunchedEffect
+            val fetched = FirebaseService.fetchPatients(uid)
+            patients = fetched.map { (id, data) ->
+                val fName = data["firstName"] as? String ?: ""
+                val lName = data["lastName"] as? String ?: ""
+                val initials = "${fName.firstOrNull() ?: ""}${lName.firstOrNull() ?: ""}".uppercase()
+                ChatPatientItem(id, "$fName $lName".trim(), initials.ifBlank { "?" })
+            }.sortedBy { it.name }
+        } catch (e: Exception) {
+            errorMessage = e.message ?: "Failed to load patients"
+        }
+        isLoading = false
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Select Patient", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
+            )
+        },
+        containerColor = MaterialTheme.colorScheme.background
+    ) { padding ->
+        if (isLoading) {
+            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = DesignTokens.Colors.Primary)
+            }
+        } else if (errorMessage != null) {
+            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                Text(errorMessage!!, color = DesignTokens.Colors.Error)
+            }
+        } else if (patients.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("👥", style = MaterialTheme.typography.displaySmall)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("No patients assigned", fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(horizontal = DesignTokens.Spacing.XL),
+                verticalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.SM)
+            ) {
+                item { Spacer(modifier = Modifier.height(DesignTokens.Spacing.SM)) }
+                items(patients) { patient ->
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onPatientTap(patient.id) },
+                        shape = RoundedCornerShape(8.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(DesignTokens.Spacing.LG),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(DesignTokens.Colors.PrimaryLight),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(patient.initials, fontWeight = FontWeight.Bold, color = DesignTokens.Colors.PrimaryDark)
+                            }
+                            Spacer(modifier = Modifier.width(DesignTokens.Spacing.MD))
+                            Column {
+                                Text(patient.name, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                                Text("View Feedbacks & Chat", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+                item { Spacer(modifier = Modifier.height(DesignTokens.Spacing.XXL)) }
+            }
+        }
+    }
+}

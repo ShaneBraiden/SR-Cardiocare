@@ -18,8 +18,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.google.firebase.Timestamp
 import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.ui.theme.DesignTokens
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import kotlin.math.max
 
 private data class BarData(val day: String, val value: Float)
 
@@ -32,7 +37,7 @@ fun AnalyticsScreen(onBack: () -> Unit) {
     )) }
     var complianceText by remember { mutableStateOf("--") }
     var streakText by remember { mutableStateOf("--") }
-    var painText by remember { mutableStateOf("--") }
+    var feedbacks by remember { mutableStateOf<List<Map<String, Any?>>>(emptyList()) }
 
     LaunchedEffect(Unit) {
         try {
@@ -44,6 +49,47 @@ fun AnalyticsScreen(onBack: () -> Unit) {
                 complianceText = "${(completedWorkouts * 100 / totalWorkouts)}%"
             }
             streakText = "$completedWorkouts"
+
+            // Build a rolling 7-day chart ending today from workout completion ratio.
+            val today = LocalDate.now()
+            val startDate = today.minusDays(6)
+            val dayLabels = (0L..6L).map { offset ->
+                startDate.plusDays(offset)
+            }
+            val dayBuckets = MutableList(7) { mutableListOf<Float>() }
+
+            workouts.forEach { (_, data) ->
+                val instant = parseToInstant(data["startedAt"]) ?: parseToInstant(data["completedAt"]) ?: return@forEach
+                val localDate = instant.atZone(ZoneId.systemDefault()).toLocalDate()
+                if (localDate.isBefore(startDate) || localDate.isAfter(today)) return@forEach
+
+                val index = java.time.temporal.ChronoUnit.DAYS.between(startDate, localDate).toInt()
+                if (index !in 0..6) return@forEach
+
+                val totalExercises = (data["totalExercises"] as? Number)?.toFloat() ?: 0f
+                val completedExercises = (data["exercisesCompleted"] as? Number)?.toFloat() ?: 0f
+                val completionRatio = when {
+                    totalExercises > 0f -> (completedExercises / totalExercises).coerceIn(0f, 1f)
+                    data["completedAt"] != null -> 1f
+                    else -> 0f
+                }
+
+                dayBuckets[index].add(completionRatio)
+            }
+
+            weeklyBars = dayLabels.mapIndexed { i, date ->
+                val avg = if (dayBuckets[i].isNotEmpty()) {
+                    dayBuckets[i].average().toFloat().coerceIn(0f, 1f)
+                } else {
+                    0f
+                }
+                BarData(date.dayOfWeek.name.first().toString(), avg)
+            }
+            
+            try {
+                feedbacks = FirebaseService.fetchPatientFeedbacks(uid).map { it.second }
+            } catch (e: Exception) { }
+            
         } catch (_: Exception) { }
     }
     Scaffold(
@@ -112,10 +158,11 @@ fun AnalyticsScreen(onBack: () -> Unit) {
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 // Bar
+                                val barHeight = if (bar.value > 0f) max(bar.value * 100f, 8f) else 4f
                                 Box(
                                     modifier = Modifier
                                         .width(12.dp)
-                                        .height((bar.value * 100).dp)
+                                    .height(barHeight.dp)
                                         .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
                                         .background(DesignTokens.Colors.NeutralLight)
                                 )
@@ -138,14 +185,88 @@ fun AnalyticsScreen(onBack: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.MD)
             ) {
-                // TODO: Load stats from Firebase Firestore
                 StatCard(complianceText, "Compliance", DesignTokens.Colors.Primary, Modifier.weight(1f))
-                StatCard(painText, "Pain Trend", DesignTokens.Colors.Success, Modifier.weight(1f))
                 StatCard(streakText, "Workouts", DesignTokens.Colors.Warning, Modifier.weight(1f))
+            }
+
+            Spacer(modifier = Modifier.height(DesignTokens.Spacing.XL))
+
+            // Metrics / Feedbacks Chart
+            if (feedbacks.isNotEmpty()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(DesignTokens.Radius.XL),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(modifier = Modifier.padding(DesignTokens.Spacing.XL)) {
+                        Text("Recent Health Metrics", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                        Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+                        
+                        // Recent up to 7 feedbacks
+                        val recent = feedbacks.take(7).reversed()
+                        Row(
+                            modifier = Modifier.fillMaxWidth().height(80.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            verticalAlignment = Alignment.Bottom
+                        ) {
+                            recent.forEach { f ->
+                                val resp = (f["respiratoryDifficulty"] as? Number)?.toFloat() ?: 1f
+                                val stress = f["stress"] as? Boolean ?: false
+                                val strain = f["strain"] as? Boolean ?: false
+                                
+                                val barColor = if (stress || strain) DesignTokens.Colors.Warning else DesignTokens.Colors.Success
+                                val barHeight = (resp / 10f * 60f).coerceAtLeast(4f)
+                                
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(16.dp)
+                                            .height(barHeight.dp)
+                                            .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
+                                            .background(barColor)
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(DesignTokens.Spacing.SM))
+                        Text(
+                            "Respiratory Difficulty (1-10) with Stress/Strain (Yellow)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            } else {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(DesignTokens.Radius.XL),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(DesignTokens.Spacing.LG),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("No feedback data available yet.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.XXL))
         }
+    }
+}
+
+private fun parseToInstant(raw: Any?): Instant? {
+    return when (raw) {
+        is Timestamp -> raw.toDate().toInstant()
+        is String -> try {
+            Instant.parse(raw)
+        } catch (_: Exception) {
+            null
+        }
+        else -> null
     }
 }
 

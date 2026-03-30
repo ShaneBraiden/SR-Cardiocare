@@ -25,7 +25,8 @@ import com.srcardiocare.ui.theme.DesignTokens
 @Composable
 fun PatientProfileSelfScreen(
     onBack: () -> Unit,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    onChangePassword: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var firstName by remember { mutableStateOf("") }
@@ -160,7 +161,22 @@ fun PatientProfileSelfScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(DesignTokens.Spacing.XXL))
+                Spacer(modifier = Modifier.height(DesignTokens.Spacing.XL))
+
+                // Change password button
+                Button(
+                    onClick = onChangePassword,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = DesignTokens.Spacing.XL)
+                        .height(52.dp),
+                    shape = RoundedCornerShape(DesignTokens.Radius.Base),
+                    colors = ButtonDefaults.buttonColors(containerColor = DesignTokens.Colors.Primary)
+                ) {
+                    Text("Change Password", fontWeight = FontWeight.SemiBold)
+                }
+
+                Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
 
                 // Sign out button
                 Button(

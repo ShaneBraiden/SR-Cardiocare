@@ -89,6 +89,10 @@ dependencies {
     // WebView (for YouTube embed playback)
     implementation("androidx.webkit:webkit:1.12.1")
 
+    // Media3 ExoPlayer (for native mp4/network playback)
+    implementation("androidx.media3:media3-exoplayer:1.5.1")
+    implementation("androidx.media3:media3-ui:1.5.1")
+
     // Networking — Retrofit + OkHttp (kept for potential future REST APIs)
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
     implementation("com.squareup.retrofit2:converter-gson:2.11.0")

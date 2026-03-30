@@ -28,6 +28,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.srcardiocare.core.security.ErrorHandler
+import com.srcardiocare.core.security.InputValidator
 import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
@@ -53,8 +55,8 @@ fun DoctorDashboardScreen(
     onAddDoctor: () -> Unit,
     onExerciseLibrary: () -> Unit,
     onSchedule: () -> Unit,
-    onVideoUpload: () -> Unit = {},
-    onProfile: () -> Unit = {}
+    onProfile: () -> Unit = {},
+    onFeedbacks: () -> Unit = {}
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var allUsers by remember { mutableStateOf<List<UserItem>>(emptyList()) }
@@ -132,7 +134,7 @@ fun DoctorDashboardScreen(
             }
             errorMessage = null
         } catch (e: Exception) {
-            errorMessage = "Could not load data: ${e.message}"
+            errorMessage = ErrorHandler.getDisplayMessage(e, "load data")
         }
         isLoading = false
         isRefreshing = false
@@ -154,6 +156,17 @@ fun DoctorDashboardScreen(
     val onlineCount = allUsers.count { it.isOnline }
 
     Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(doctorName, fontWeight = FontWeight.Bold) },
+                actions = {
+                    IconButton(onClick = onFeedbacks) {
+                        Icon(Icons.Default.Person, contentDescription = "Patient Feedbacks")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
+            )
+        },
         containerColor = MaterialTheme.colorScheme.background,
         floatingActionButton = {
             Column(horizontalAlignment = Alignment.End) {
@@ -189,7 +202,6 @@ fun DoctorDashboardScreen(
                     icon = { Icon(Icons.Default.People, contentDescription = "Patients") }
                 )
                 NavigationBarItem(selected = false, onClick = onExerciseLibrary, label = { Text("Exercises") }, icon = { Icon(Icons.Default.FitnessCenter, contentDescription = "Exercises") })
-                NavigationBarItem(selected = false, onClick = onVideoUpload, label = { Text("Videos") }, icon = { Icon(Icons.Default.PlayArrow, contentDescription = "Videos") })
                 NavigationBarItem(selected = false, onClick = onSchedule, label = { Text("Schedule") }, icon = { Icon(Icons.Default.CalendarMonth, contentDescription = "Schedule") })
                 NavigationBarItem(selected = false, onClick = onProfile, label = { Text("Profile") }, icon = { Icon(Icons.Default.Person, contentDescription = "Profile") })
             }
@@ -251,7 +263,7 @@ fun DoctorDashboardScreen(
                 item {
                     OutlinedTextField(
                         value = searchQuery,
-                        onValueChange = { searchQuery = it },
+                        onValueChange = { searchQuery = InputValidator.limitLength(it, InputValidator.MaxLength.TEXT_FIELD) },
                         placeholder = { Text(if (userRole == "admin") "Search all users…" else "Search patients…") },
                         leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
                         modifier = Modifier

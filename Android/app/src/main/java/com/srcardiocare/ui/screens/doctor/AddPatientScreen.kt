@@ -14,6 +14,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.google.firebase.auth.FirebaseAuth
+import com.srcardiocare.core.security.ErrorHandler
+import com.srcardiocare.core.security.InputValidator
+import com.srcardiocare.core.security.PasswordGenerator
 import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
@@ -69,7 +73,8 @@ fun AddPatientScreen(onSaved: () -> Unit, onBack: () -> Unit) {
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
 
             OutlinedTextField(
-                value = fullName, onValueChange = { fullName = it },
+                value = fullName,
+                onValueChange = { fullName = InputValidator.limitLength(it, InputValidator.MaxLength.NAME) },
                 label = { Text("Full Name") }, placeholder = { Text("e.g. John Doe") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(DesignTokens.Radius.Base),
@@ -79,11 +84,16 @@ fun AddPatientScreen(onSaved: () -> Unit, onBack: () -> Unit) {
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
 
             OutlinedTextField(
-                value = age, onValueChange = { age = it },
+                value = age,
+                onValueChange = { newVal ->
+                    // Only allow digits, max 3 chars
+                    if (newVal.all { it.isDigit() } && newVal.length <= 3) age = newVal
+                },
                 label = { Text("Age") }, placeholder = { Text("e.g. 32") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(DesignTokens.Radius.Base),
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = DesignTokens.Colors.Primary)
             )
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
@@ -117,7 +127,8 @@ fun AddPatientScreen(onSaved: () -> Unit, onBack: () -> Unit) {
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
 
             OutlinedTextField(
-                value = phone, onValueChange = { phone = it },
+                value = phone,
+                onValueChange = { phone = InputValidator.limitLength(it, InputValidator.MaxLength.PHONE) },
                 label = { Text("Phone") }, placeholder = { Text("e.g. +1 555 123 4567") },
                 modifier = Modifier.fillMaxWidth(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
@@ -128,7 +139,8 @@ fun AddPatientScreen(onSaved: () -> Unit, onBack: () -> Unit) {
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
 
             OutlinedTextField(
-                value = injuryType, onValueChange = { injuryType = it },
+                value = injuryType,
+                onValueChange = { injuryType = InputValidator.limitLength(it, InputValidator.MaxLength.INJURY_TYPE) },
                 label = { Text("Injury Type") }, placeholder = { Text("e.g. ACL Injury") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(DesignTokens.Radius.Base),
@@ -138,7 +150,8 @@ fun AddPatientScreen(onSaved: () -> Unit, onBack: () -> Unit) {
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
 
             OutlinedTextField(
-                value = notes, onValueChange = { notes = it },
+                value = notes,
+                onValueChange = { notes = InputValidator.limitLength(it, InputValidator.MaxLength.NOTES) },
                 label = { Text("Additional Notes") },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -149,14 +162,14 @@ fun AddPatientScreen(onSaved: () -> Unit, onBack: () -> Unit) {
 
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.SM))
 
-            // Default password info
+            // Password reset info
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(DesignTokens.Radius.Base),
                 colors = CardDefaults.cardColors(containerColor = DesignTokens.Colors.PrimaryLight.copy(alpha = 0.3f))
             ) {
                 Text(
-                    "ℹ️ Default password: password@123",
+                    "A password reset email will be sent to the patient. They must set their own password before logging in.",
                     modifier = Modifier.padding(DesignTokens.Spacing.MD),
                     style = MaterialTheme.typography.bodySmall,
                     color = DesignTokens.Colors.PrimaryDark
@@ -167,37 +180,68 @@ fun AddPatientScreen(onSaved: () -> Unit, onBack: () -> Unit) {
 
             Button(
                 onClick = {
-                    val trimmedEmail = email.trim()
-                    if (fullName.isBlank() || trimmedEmail.isBlank()) {
-                        errorMessage = "Name and Email are required"
+                    // Validate name
+                    val nameValidation = InputValidator.validateName(fullName, "Full Name")
+                    if (!nameValidation.isValid) {
+                        errorMessage = nameValidation.errorMessage
                         return@Button
                     }
-                    if (!android.util.Patterns.EMAIL_ADDRESS.matcher(trimmedEmail).matches()) {
-                        errorMessage = "Please enter a valid email address"
+
+                    // Validate email
+                    val emailValidation = InputValidator.validateEmail(email)
+                    if (!emailValidation.isValid) {
+                        errorMessage = emailValidation.errorMessage
                         return@Button
                     }
+
+                    // Validate phone (optional but must be valid format if provided)
+                    val phoneValidation = InputValidator.validatePhone(phone)
+                    if (!phoneValidation.isValid) {
+                        errorMessage = phoneValidation.errorMessage
+                        return@Button
+                    }
+
+                    // Validate age (optional but must be valid if provided)
+                    val ageValidation = InputValidator.validateAge(age)
+                    if (!ageValidation.isValid) {
+                        errorMessage = ageValidation.errorMessage
+                        return@Button
+                    }
+
                     isLoading = true
-                    val nameParts = fullName.trim().split(" ", limit = 2)
+                    val nameParts = nameValidation.sanitizedValue.split(" ", limit = 2)
                     val firstName = nameParts.firstOrNull() ?: ""
                     val lastName = if (nameParts.size > 1) nameParts[1] else ""
                     val creatingDoctorUid = FirebaseService.currentUID
 
                     scope.launch {
                         try {
+                            // Generate secure temporary password
+                            val tempPassword = PasswordGenerator.generateTemporaryPassword()
+
                             // Create account WITHOUT switching auth session
                             val newPatientUid = FirebaseService.registerOther(
-                                email = email.trim(),
-                                password = "password@123",
+                                email = emailValidation.sanitizedValue,
+                                password = tempPassword,
                                 firstName = firstName,
                                 lastName = lastName,
                                 role = "patient"
                             )
 
+                            // Send password reset email so user can set their own password
+                            FirebaseAuth.getInstance().sendPasswordResetEmail(emailValidation.sanitizedValue)
+
                             // Write extra fields directly to the new patient's doc
                             val extraFields = mutableMapOf<String, Any>()
-                            if (phone.isNotBlank()) extraFields["phone"] = phone.trim()
-                            if (injuryType.isNotBlank()) extraFields["injuries"] = listOf(injuryType.trim())
-                            if (age.isNotBlank()) extraFields["age"] = age.trim().toIntOrNull() ?: age.trim()
+                            if (phoneValidation.sanitizedValue.isNotBlank()) {
+                                extraFields["phone"] = phoneValidation.sanitizedValue
+                            }
+                            if (injuryType.isNotBlank()) {
+                                extraFields["injuries"] = listOf(injuryType.trim())
+                            }
+                            if (ageValidation.sanitizedValue.isNotBlank()) {
+                                extraFields["age"] = ageValidation.sanitizedValue.toInt()
+                            }
                             extraFields["gender"] = genders[selectedGender]
                             if (notes.isNotBlank()) extraFields["notes"] = notes.trim()
                             if (creatingDoctorUid != null) {
@@ -211,11 +255,11 @@ fun AddPatientScreen(onSaved: () -> Unit, onBack: () -> Unit) {
                             }
 
                             // Show success and navigate back
-                            snackbarHostState.showSnackbar("✅ Patient account created successfully!")
+                            snackbarHostState.showSnackbar("Patient account created! Password reset email sent.")
                             onSaved()
                         } catch (e: Exception) {
                             isLoading = false
-                            errorMessage = "Failed to add patient: ${e.message}"
+                            errorMessage = ErrorHandler.getDisplayMessage(e, "add patient")
                         }
                     }
                 },

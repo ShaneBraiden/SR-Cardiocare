@@ -21,6 +21,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.srcardiocare.core.security.ErrorHandler
+import com.srcardiocare.core.security.InputValidator
 import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
@@ -63,6 +65,7 @@ fun ScheduleScreen(onBack: () -> Unit) {
     val days = remember { currentWeekDays() }
     var appointments by remember { mutableStateOf<List<ApptItem>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
+    var loadError by remember { mutableStateOf<String?>(null) }
 
     // Add appointment state
     var showAddDialog by remember { mutableStateOf(false) }
@@ -79,11 +82,29 @@ fun ScheduleScreen(onBack: () -> Unit) {
     // Load appointments
     LaunchedEffect(Unit) {
         try {
-            val uid = FirebaseService.currentUID ?: return@LaunchedEffect
+            val uid = FirebaseService.currentUID
+            if (uid == null) {
+                loadError = "Not signed in"
+                isLoading = false
+                return@LaunchedEffect
+            }
             val userData = FirebaseService.fetchUser(uid)
-            val role = userData["role"] as? String ?: "patient"
+            val role = (userData["role"] as? String ?: "patient").lowercase()
             userRole = role
-            val rawAppts = FirebaseService.fetchAppointments(uid, role)
+            
+            val rawAppts = try {
+                FirebaseService.fetchAppointments(uid, role)
+            } catch (e: Exception) {
+                // If the ordered query fails (missing index), try without ordering
+                try {
+                    FirebaseService.fetchAppointmentsUnordered(uid, role)
+                } catch (e2: Exception) {
+                    loadError = ErrorHandler.getDisplayMessage(e2, "load appointments")
+                    isLoading = false
+                    return@LaunchedEffect
+                }
+            }
+            
             val timeFormatter = DateTimeFormatter.ofPattern("h:mm a")
             appointments = rawAppts.map { (_, data) ->
                 val dateTimeRaw = data["dateTime"]
@@ -126,7 +147,10 @@ fun ScheduleScreen(onBack: () -> Unit) {
                     apptDate = apptDate
                 )
             }
-        } catch (_: Exception) { }
+            loadError = null
+        } catch (e: Exception) {
+            loadError = ErrorHandler.getDisplayMessage(e, "load schedule")
+        }
         isLoading = false
     }
 
@@ -184,7 +208,13 @@ fun ScheduleScreen(onBack: () -> Unit) {
                     ) {
                         OutlinedTextField(
                             value = apptHour,
-                            onValueChange = { if (it.length <= 2 && it.all { c -> c.isDigit() }) apptHour = it },
+                            onValueChange = { newVal ->
+                                // Only allow digits 0-23
+                                if (newVal.length <= 2 && newVal.all { c -> c.isDigit() }) {
+                                    val hourInt = newVal.toIntOrNull()
+                                    if (hourInt == null || hourInt <= 23) apptHour = newVal
+                                }
+                            },
                             label = { Text("HH") },
                             modifier = Modifier.weight(1f),
                             singleLine = true,
@@ -194,7 +224,13 @@ fun ScheduleScreen(onBack: () -> Unit) {
                         Text(":", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
                         OutlinedTextField(
                             value = apptMinute,
-                            onValueChange = { if (it.length <= 2 && it.all { c -> c.isDigit() }) apptMinute = it },
+                            onValueChange = { newVal ->
+                                // Only allow digits 0-59
+                                if (newVal.length <= 2 && newVal.all { c -> c.isDigit() }) {
+                                    val minInt = newVal.toIntOrNull()
+                                    if (minInt == null || minInt <= 59) apptMinute = newVal
+                                }
+                            },
                             label = { Text("MM") },
                             modifier = Modifier.weight(1f),
                             singleLine = true,
@@ -205,7 +241,7 @@ fun ScheduleScreen(onBack: () -> Unit) {
 
                     OutlinedTextField(
                         value = apptNotes,
-                        onValueChange = { apptNotes = it },
+                        onValueChange = { apptNotes = InputValidator.limitLength(it, InputValidator.MaxLength.NOTES) },
                         label = { Text("Notes (optional)") },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(DesignTokens.Radius.Base),
@@ -254,9 +290,9 @@ fun ScheduleScreen(onBack: () -> Unit) {
                                 apptNotes = ""
                                 apptHour = "10"
                                 apptMinute = "00"
-                                snackbarHostState.showSnackbar("✅ Appointment created")
+                                snackbarHostState.showSnackbar("Appointment created")
                             } catch (e: Exception) {
-                                snackbarHostState.showSnackbar("❌ Failed: ${e.message}")
+                                snackbarHostState.showSnackbar(ErrorHandler.getDisplayMessage(e, "create appointment"))
                             }
                             isSaving = false
                         }
@@ -361,74 +397,102 @@ fun ScheduleScreen(onBack: () -> Unit) {
 
             HorizontalDivider(color = DesignTokens.Colors.NeutralLight)
 
-            // Appointments
-            if (isLoading) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = DesignTokens.Colors.Primary)
-                }
-            } else if (filteredAppts.isEmpty()) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("📅", style = MaterialTheme.typography.displaySmall)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("No appointments for this day", fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text("Tap + to schedule one", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            // Content
+            when {
+                isLoading -> {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = DesignTokens.Colors.Primary)
                     }
                 }
-            } else {
-                LazyColumn(
-                    contentPadding = PaddingValues(horizontal = DesignTokens.Spacing.XL, vertical = DesignTokens.Spacing.MD),
-                    verticalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.SM),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(filteredAppts) { appt ->
-                        Card(
-                            shape = RoundedCornerShape(DesignTokens.Radius.LG),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(DesignTokens.Spacing.MD),
-                                verticalAlignment = Alignment.CenterVertically
+                loadError != null -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("⚠️", style = MaterialTheme.typography.displaySmall)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Could not load schedule", fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                loadError ?: "",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                "Tap + to create an appointment",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = DesignTokens.Colors.Primary
+                            )
+                        }
+                    }
+                }
+                filteredAppts.isEmpty() -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("📅", style = MaterialTheme.typography.displaySmall)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("No appointments for this day", fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("Tap + to schedule one", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+                else -> {
+                    LazyColumn(
+                        contentPadding = PaddingValues(horizontal = DesignTokens.Spacing.XL, vertical = DesignTokens.Spacing.MD),
+                        verticalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.SM),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(filteredAppts) { appt ->
+                            Card(
+                                shape = RoundedCornerShape(DesignTokens.Radius.LG),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                             ) {
-                                // Time column
-                                Column(
-                                    modifier = Modifier.width(72.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(DesignTokens.Spacing.MD),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(
-                                        appt.time,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = DesignTokens.Colors.Primary
+                                    // Time column
+                                    Column(
+                                        modifier = Modifier.width(72.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(
+                                            appt.time,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = DesignTokens.Colors.Primary
+                                        )
+                                    }
+                                    // Color indicator
+                                    Box(
+                                        modifier = Modifier
+                                            .width(4.dp)
+                                            .height(40.dp)
+                                            .clip(RoundedCornerShape(2.dp))
+                                            .background(appt.color)
+                                    )
+                                    Spacer(modifier = Modifier.width(DesignTokens.Spacing.MD))
+                                    // Details
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(appt.name, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                                        Text(appt.type, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    // Status dot
+                                    Box(
+                                        modifier = Modifier
+                                            .size(10.dp)
+                                            .clip(CircleShape)
+                                            .background(appt.color)
                                     )
                                 }
-                                // Color indicator
-                                Box(
-                                    modifier = Modifier
-                                        .width(4.dp)
-                                        .height(40.dp)
-                                        .clip(RoundedCornerShape(2.dp))
-                                        .background(appt.color)
-                                )
-                                Spacer(modifier = Modifier.width(DesignTokens.Spacing.MD))
-                                // Details
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(appt.name, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                                    Text(appt.type, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                                // Status dot
-                                Box(
-                                    modifier = Modifier
-                                        .size(10.dp)
-                                        .clip(CircleShape)
-                                        .background(appt.color)
-                                )
                             }
                         }
                     }

@@ -87,7 +87,7 @@ google-services.json
 local.properties
 Android/app/build/
 Android/build/
-Android/.gradle/
+Android/.gradle
 # Dev folder
 Dev/
 

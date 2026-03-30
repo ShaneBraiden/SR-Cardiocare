@@ -20,14 +20,17 @@ import androidx.compose.ui.unit.dp
 import com.srcardiocare.core.auth.AuthManager
 import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.ui.theme.DesignTokens
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DoctorProfileScreen(
     onBack: () -> Unit,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    onChangePassword: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var firstName  by remember { mutableStateOf("") }
     var lastName   by remember { mutableStateOf("") }
     var email      by remember { mutableStateOf("") }
@@ -150,6 +153,42 @@ fun DoctorProfileScreen(
 
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.XXL))
 
+            // ── Admin Settings ──────────────────────────────────────────
+            if (role.lowercase() == "admin") {
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = DesignTokens.Spacing.XL),
+                    shape = RoundedCornerShape(DesignTokens.Radius.Card),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(DesignTokens.Spacing.XL),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Enforce Session Locks", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground)
+                            Text("Block completed or expired workouts so patients cannot bypass daily limits.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        var sessionLocksEnabled by remember { mutableStateOf(true) }
+                        LaunchedEffect(Unit) {
+                            sessionLocksEnabled = FirebaseService.fetchSessionLocksEnabled()
+                        }
+                        Switch(
+                            checked = sessionLocksEnabled,
+                            onCheckedChange = { isChecked ->
+                                sessionLocksEnabled = isChecked
+                                scope.launch {
+                                    FirebaseService.updateSessionLocksEnabled(isChecked)
+                                }
+                            },
+                            colors = SwitchDefaults.colors(checkedThumbColor = DesignTokens.Colors.Primary)
+                        )
+                    }
+                }
+            }
+
             // ── Info Card ───────────────────────────────────────────────
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -169,6 +208,18 @@ fun DoctorProfileScreen(
             }
 
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.XL))
+
+            // ── Change Password ──────────────────────────────────────────
+            Button(
+                onClick = onChangePassword,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(DesignTokens.Radius.Button),
+                colors = ButtonDefaults.buttonColors(containerColor = DesignTokens.Colors.Primary)
+            ) {
+                Text("Change Password", fontWeight = FontWeight.SemiBold)
+            }
+
+            Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
 
             // ── Sign Out ────────────────────────────────────────────────
             OutlinedButton(

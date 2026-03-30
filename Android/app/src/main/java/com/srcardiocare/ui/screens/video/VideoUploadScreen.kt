@@ -8,6 +8,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -17,8 +18,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.srcardiocare.core.security.ErrorHandler
+import com.srcardiocare.core.security.InputValidator
 import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
@@ -137,7 +141,8 @@ fun VideoUploadScreen(onBack: () -> Unit, onUploaded: () -> Unit) {
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.XL))
 
             OutlinedTextField(
-                value = exerciseName, onValueChange = { exerciseName = it },
+                value = exerciseName,
+                onValueChange = { exerciseName = InputValidator.limitLength(it, InputValidator.MaxLength.EXERCISE_NAME) },
                 label = { Text("Exercise Name") }, placeholder = { Text("e.g. Knee Flexion") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(DesignTokens.Radius.Base),
@@ -147,7 +152,8 @@ fun VideoUploadScreen(onBack: () -> Unit, onUploaded: () -> Unit) {
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
 
             OutlinedTextField(
-                value = category, onValueChange = { category = it },
+                value = category,
+                onValueChange = { category = InputValidator.limitLength(it, InputValidator.MaxLength.CATEGORY) },
                 label = { Text("Category") }, placeholder = { Text("e.g. Knee") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(DesignTokens.Radius.Base),
@@ -157,7 +163,8 @@ fun VideoUploadScreen(onBack: () -> Unit, onUploaded: () -> Unit) {
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
 
             OutlinedTextField(
-                value = difficulty, onValueChange = { difficulty = it },
+                value = difficulty,
+                onValueChange = { difficulty = InputValidator.limitLength(it, InputValidator.MaxLength.CATEGORY) },
                 label = { Text("Difficulty") }, placeholder = { Text("Beginner / Intermediate / Advanced") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(DesignTokens.Radius.Base),
@@ -167,17 +174,23 @@ fun VideoUploadScreen(onBack: () -> Unit, onUploaded: () -> Unit) {
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
 
             OutlinedTextField(
-                value = duration, onValueChange = { duration = it },
+                value = duration,
+                onValueChange = { newVal ->
+                    // Only allow digits
+                    if (newVal.all { it.isDigit() } && newVal.length <= 6) duration = newVal
+                },
                 label = { Text("Duration (seconds)") }, placeholder = { Text("e.g. 120") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(DesignTokens.Radius.Base),
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = DesignTokens.Colors.Primary)
             )
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
 
             OutlinedTextField(
-                value = instructions, onValueChange = { instructions = it },
+                value = instructions,
+                onValueChange = { instructions = InputValidator.limitLength(it, InputValidator.MaxLength.INSTRUCTIONS) },
                 label = { Text("Instructions") },
                 modifier = Modifier.fillMaxWidth().height(100.dp),
                 shape = RoundedCornerShape(DesignTokens.Radius.Base),
@@ -218,7 +231,10 @@ fun VideoUploadScreen(onBack: () -> Unit, onUploaded: () -> Unit) {
                                 "videoFileName" to selectedFileName
                             )
                             if (duration.isNotBlank()) {
-                                exerciseData["duration"] = duration.trim().toIntOrNull() ?: duration.trim()
+                                val durationInt = duration.trim().toIntOrNull()
+                                if (durationInt != null && durationInt > 0) {
+                                    exerciseData["duration"] = durationInt
+                                }
                             }
 
                             FirebaseService.createExercise(exerciseData)
@@ -229,7 +245,7 @@ fun VideoUploadScreen(onBack: () -> Unit, onUploaded: () -> Unit) {
                         } catch (e: Exception) {
                             isUploading = false
                             uploadProgress = 0f
-                            errorMessage = "❌ Failed: ${e.message}"
+                            errorMessage = ErrorHandler.getDisplayMessage(e, "upload exercise")
                         }
                     }
                 },

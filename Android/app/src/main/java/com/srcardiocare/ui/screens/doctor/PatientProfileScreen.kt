@@ -31,10 +31,8 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
     var patientName by remember { mutableStateOf("") }
     var patientCondition by remember { mutableStateOf("") }
     var patientInitials by remember { mutableStateOf("") }
-    var complianceText by remember { mutableStateOf("--") }
-    var painText by remember { mutableStateOf("--") }
-    var progressText by remember { mutableStateOf("--") }
     var exerciseItems by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
+    var feedbacks by remember { mutableStateOf<List<Map<String, Any?>>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
     // New actions state
@@ -89,10 +87,10 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
 
             val workouts = FirebaseService.fetchWorkouts(patientId)
             val totalWorkouts = workouts.size
-            val completedWorkouts = workouts.count { it.second["completedAt"] != null }
-            if (totalWorkouts > 0) {
-                complianceText = "${(completedWorkouts * 100 / totalWorkouts)}%"
-            }
+            
+            try {
+                feedbacks = FirebaseService.fetchPatientFeedbacks(patientId).map { it.second }
+            } catch (e: Exception) { }
         } catch (_: Exception) { }
     }
 
@@ -150,6 +148,10 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                             val name = data["name"] as? String ?: data["title"] as? String ?: "Unnamed Exercise"
                             val category = data["category"] as? String ?: ""
                             val difficulty = data["difficulty"] as? String ?: ""
+                            val videoUrl = data["videoUrl"] as? String
+                            val instructions = data["instructions"]
+                            val defaultSets = (data["sets"] as? Number)?.toInt() ?: 3
+                            val defaultReps = (data["reps"] as? Number)?.toInt() ?: 10
 
                             Card(
                                 modifier = Modifier
@@ -163,8 +165,14 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                                                     "name" to name,
                                                     "category" to category,
                                                     "difficulty" to difficulty,
-                                                    "customSets" to 3,
-                                                    "customReps" to 10
+                                                    "customSets" to defaultSets,
+                                                    "customReps" to defaultReps,
+                                                    "videoUrl" to (videoUrl ?: ""),
+                                                    "instructions" to when (instructions) {
+                                                        is String -> instructions
+                                                        is List<*> -> instructions.joinToString("\n") { it?.toString().orEmpty() }
+                                                        else -> ""
+                                                    }
                                                 )
                                                 FirebaseService.assignExerciseToPatient(patientId, exerciseData)
                                                 showAssignDialog = false
@@ -311,23 +319,69 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
 
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.XL))
 
-            // Stats row
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = DesignTokens.Spacing.XL),
-                shape = RoundedCornerShape(DesignTokens.Radius.LG),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-            ) {
-                Row(
+            // Metrics / Feedbacks Chart
+            if (feedbacks.isNotEmpty()) {
+                Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(DesignTokens.Spacing.MD),
-                    horizontalArrangement = Arrangement.SpaceEvenly
+                        .padding(horizontal = DesignTokens.Spacing.XL),
+                    shape = RoundedCornerShape(DesignTokens.Radius.LG),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                 ) {
-                    StatItem(complianceText, "Compliance")
-                    StatItem(painText, "Pain Level")
-                    StatItem(progressText, "Progress")
+                    Column(modifier = Modifier.padding(DesignTokens.Spacing.XL)) {
+                        Text("Recent Health Metrics", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                        Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+                        
+                        // Recent up to 7 feedbacks
+                        val recent = feedbacks.take(7).reversed()
+                        Row(
+                            modifier = Modifier.fillMaxWidth().height(80.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            verticalAlignment = Alignment.Bottom
+                        ) {
+                            recent.forEach { f ->
+                                val resp = (f["respiratoryDifficulty"] as? Number)?.toFloat() ?: 1f
+                                val stress = f["stress"] as? Boolean ?: false
+                                val strain = f["strain"] as? Boolean ?: false
+                                
+                                val barColor = if (stress || strain) DesignTokens.Colors.Warning else DesignTokens.Colors.Success
+                                val barHeight = (resp / 10f * 60f).coerceAtLeast(4f)
+                                
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(16.dp)
+                                            .height(barHeight.dp)
+                                            .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
+                                            .background(barColor)
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(DesignTokens.Spacing.SM))
+                        Text(
+                            "Respiratory Difficulty (1-10) with Stress/Strain (Yellow)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            } else {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = DesignTokens.Spacing.XL),
+                    shape = RoundedCornerShape(DesignTokens.Radius.LG),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(DesignTokens.Spacing.LG),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("No feedback data available yet.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
 

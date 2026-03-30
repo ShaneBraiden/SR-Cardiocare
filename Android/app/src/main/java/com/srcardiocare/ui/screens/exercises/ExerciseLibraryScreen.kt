@@ -1,7 +1,13 @@
-// ExerciseLibraryScreen.kt — Searchable exercise grid with category chips
+// ExerciseLibraryScreen.kt — Searchable exercise grid with category chips and video playback
 package com.srcardiocare.ui.screens.exercises
 
+import android.annotation.SuppressLint
+import android.content.Context
+import android.net.Uri
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -12,15 +18,26 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.media3.common.MediaItem
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
+import com.srcardiocare.core.security.InputValidator
 import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
@@ -48,6 +65,7 @@ fun ExerciseLibraryScreen(onBack: () -> Unit, onUpload: () -> Unit) {
     var currentUserRole by remember { mutableStateOf("") }
     var showDeleteDialogFor by remember { mutableStateOf<ExLibItem?>(null) }
     var isDeleting by remember { mutableStateOf(false) }
+    var playingVideo by remember { mutableStateOf<ExLibItem?>(null) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
@@ -84,6 +102,15 @@ fun ExerciseLibraryScreen(onBack: () -> Unit, onUpload: () -> Unit) {
         matchesCat && matchesSearch
     }
 
+    // Video player dialog
+    playingVideo?.let { exercise ->
+        VideoPlayerDialog(
+            exerciseName = exercise.name,
+            videoUrl = exercise.videoUrl,
+            onDismiss = { playingVideo = null }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -95,6 +122,17 @@ fun ExerciseLibraryScreen(onBack: () -> Unit, onUpload: () -> Unit) {
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
+        },
+        floatingActionButton = {
+            if (currentUserRole == "admin" || currentUserRole == "doctor") {
+                FloatingActionButton(
+                    onClick = onUpload,
+                    containerColor = DesignTokens.Colors.Primary,
+                    contentColor = Color.White
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "Upload Video")
+                }
+            }
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
@@ -145,7 +183,7 @@ fun ExerciseLibraryScreen(onBack: () -> Unit, onUpload: () -> Unit) {
             // Search
             OutlinedTextField(
                 value = searchQuery,
-                onValueChange = { searchQuery = it },
+                onValueChange = { searchQuery = InputValidator.limitLength(it, InputValidator.MaxLength.TEXT_FIELD) },
                 placeholder = { Text("Search exercises…") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
                 modifier = Modifier
@@ -195,7 +233,13 @@ fun ExerciseLibraryScreen(onBack: () -> Unit, onUpload: () -> Unit) {
                 items(filtered) { ex ->
                     Card(
                         shape = RoundedCornerShape(DesignTokens.Radius.LG),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        modifier = Modifier.clickable {
+                            // Admin/Doctor can play videos
+                            if ((currentUserRole == "admin" || currentUserRole == "doctor") && !ex.videoUrl.isNullOrBlank()) {
+                                playingVideo = ex
+                            }
+                        }
                     ) {
                         Column(modifier = Modifier.padding(DesignTokens.Spacing.MD)) {
                             // Thumbnail placeholder
@@ -207,7 +251,25 @@ fun ExerciseLibraryScreen(onBack: () -> Unit, onUpload: () -> Unit) {
                                     .background(DesignTokens.Colors.PrimaryLight.copy(alpha = 0.3f)),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text("🎬", style = MaterialTheme.typography.headlineMedium)
+                                // Play icon for playable videos
+                                if ((currentUserRole == "admin" || currentUserRole == "doctor") && !ex.videoUrl.isNullOrBlank()) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.Black.copy(alpha = 0.5f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            Icons.Default.PlayArrow,
+                                            contentDescription = "Play",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                } else {
+                                    Text("🎬", style = MaterialTheme.typography.headlineMedium)
+                                }
 
                                 // Delete button for authorized users
                                 val canDelete = currentUserRole == "admin" || (currentUserRole == "doctor" && ex.uploadedBy == currentUserId)
@@ -256,4 +318,139 @@ fun ExerciseLibraryScreen(onBack: () -> Unit, onUpload: () -> Unit) {
             }
         }
     }
+}
+
+/**
+ * Fullscreen dialog for video playback in Exercise Library.
+ */
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+private fun VideoPlayerDialog(
+    exerciseName: String,
+    videoUrl: String?,
+    onDismiss: () -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = Color.Black
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                val isYoutube = remember(videoUrl) { !extractYoutubeVideoIdLib(videoUrl.orEmpty()).isNullOrBlank() }
+
+                if (videoUrl.isNullOrBlank()) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("No video available", color = Color.White)
+                    }
+                } else if (isYoutube) {
+                    val videoId = remember(videoUrl) { extractYoutubeVideoIdLib(videoUrl) }
+                    // Validate video ID to prevent XSS
+                    if (videoId == null || !InputValidator.validateYouTubeVideoId(videoId)) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("Invalid video URL", color = Color.White)
+                        }
+                    } else {
+                        val html = """
+                            <html><body style="margin:0;padding:0;background:#000;">
+                              <iframe width="100%" height="100%"
+                                src="https://www.youtube.com/embed/$videoId?playsinline=1&rel=0&autoplay=1"
+                                frameborder="0" allowfullscreen
+                                allow="autoplay; encrypted-media; picture-in-picture">
+                              </iframe>
+                            </body></html>
+                        """.trimIndent()
+                        AndroidView(
+                            factory = { context: Context ->
+                                WebView(context).apply {
+                                    settings.javaScriptEnabled = true
+                                    settings.mediaPlaybackRequiresUserGesture = false
+                                    webViewClient = WebViewClient()
+                                    loadDataWithBaseURL("https://www.youtube.com", html, "text/html", "utf-8", null)
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(16f / 9f)
+                                .align(Alignment.Center)
+                        )
+                    }
+                } else {
+                    // ExoPlayer for direct video URLs
+                    val context = androidx.compose.ui.platform.LocalContext.current
+                    val exoPlayer = remember(videoUrl) {
+                        ExoPlayer.Builder(context).build().apply {
+                            setMediaItem(MediaItem.fromUri(videoUrl))
+                            prepare()
+                            playWhenReady = true
+                        }
+                    }
+
+                    DisposableEffect(exoPlayer) {
+                        onDispose { exoPlayer.release() }
+                    }
+
+                    AndroidView(
+                        factory = { ctx ->
+                            PlayerView(ctx).apply {
+                                useController = true
+                                player = exoPlayer
+                            }
+                        },
+                        update = { it.player = exoPlayer },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(16f / 9f)
+                            .align(Alignment.Center)
+                    )
+                }
+
+                // Close & title overlay
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .fillMaxWidth()
+                        .background(Color.Black.copy(alpha = 0.5f))
+                        .padding(8.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                        }
+                        Text(
+                            exerciseName,
+                            color = Color.White,
+                            fontWeight = FontWeight.SemiBold,
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun extractYoutubeVideoIdLib(url: String): String? {
+    return runCatching {
+        val uri = Uri.parse(url)
+        when {
+            uri.host?.contains("youtu.be") == true -> uri.lastPathSegment
+            uri.host?.contains("youtube.com") == true && uri.path?.startsWith("/embed/") == true -> {
+                uri.pathSegments.getOrNull(1)
+            }
+            uri.host?.contains("youtube.com") == true -> uri.getQueryParameter("v")
+            else -> null
+        }
+    }.getOrNull()?.takeIf { it.isNotBlank() }
 }

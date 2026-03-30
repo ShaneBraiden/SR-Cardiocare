@@ -7,17 +7,21 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.navigation.compose.rememberNavController
 import com.srcardiocare.navigation.SRCardiocareNavGraph
 import com.srcardiocare.navigation.Route
 import com.srcardiocare.ui.theme.DesignTokens
 import com.srcardiocare.ui.theme.SRCardiocareTheme
-import androidx.compose.material3.MaterialTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -38,8 +42,7 @@ class MainActivity : ComponentActivity() {
                     startDest = when {
                         !auth.isLoggedIn                              -> Route.Login.path
                         auth.userRole in listOf("DOCTOR", "ADMIN")    -> Route.DoctorDashboard.path
-                        auth.onboardingCompleted                      -> Route.PatientHome.path
-                        else                                          -> Route.OnboardingWelcome.path
+                        else                                          -> Route.PatientHome.path
                     }
                 }
 
@@ -47,10 +50,18 @@ class MainActivity : ComponentActivity() {
                     // Invisible placeholder — matches the splash window background
                     // so there is no colour change between system splash → app.
                     Box(
-                        modifier = androidx.compose.ui.Modifier
+                        modifier = Modifier
                             .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.background)
-                    )
+                            .background(MaterialTheme.colorScheme.background),
+                        contentAlignment = Alignment.BottomCenter
+                    ) {
+                        Text(
+                            text = "Powered by SRET-AIDA",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier.padding(bottom = DesignTokens.Spacing.MD)
+                        )
+                    }
                 } else {
                     val navController = rememberNavController()
                     SRCardiocareNavGraph(
@@ -62,4 +73,3 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-

@@ -3,6 +3,7 @@
 // YouTube: Video storage via Data API v3 (free quota — unlisted uploads)
 package com.srcardiocare.data.firebase
 
+import android.util.Log
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.userProfileChangeRequest
@@ -12,6 +13,9 @@ import com.google.firebase.firestore.Query
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.storageMetadata
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.Flow
 import java.util.UUID
 
 /**
@@ -21,6 +25,7 @@ import java.util.UUID
  */
 object FirebaseService {
 
+    private const val TAG = "FirebaseService"
     private val auth = FirebaseAuth.getInstance()
     private val db = FirebaseFirestore.getInstance()
     private val storage = FirebaseStorage.getInstance()
@@ -220,8 +225,8 @@ object FirebaseService {
                 val storageRef = storage.getReferenceFromUrl(videoUrl)
                 storageRef.delete().await()
             } catch (e: Exception) {
-                // Log or ignore failure to delete storage if it doesn't exist
-                e.printStackTrace()
+                // Log error but don't fail the exercise deletion
+                Log.e(TAG, "Failed to delete storage file: ${e.message}", e)
             }
         }
     }
@@ -313,9 +318,9 @@ object FirebaseService {
     suspend fun fetchWorkouts(patientId: String): List<Pair<String, Map<String, Any?>>> {
         val snapshot = db.collection("workouts")
             .whereEqualTo("patientId", patientId)
-            .orderBy("startedAt", Query.Direction.DESCENDING)
             .get().await()
         return snapshot.documents.map { it.id to (it.data ?: emptyMap()) }
+            .sortedByDescending { (it.second["startedAt"] as? com.google.firebase.Timestamp)?.seconds ?: 0L }
     }
 
     suspend fun startWorkout(planId: String, totalExercises: Int): String {
@@ -343,6 +348,32 @@ object FirebaseService {
         ).await()
     }
 
+    suspend fun incrementExerciseProgress(patientId: String, planId: String, totalCount: Int): String? {
+        val workouts = fetchWorkouts(patientId)
+        val todayStart = java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toEpochSecond()
+        val latest = workouts.firstOrNull { (it.second["startedAt"] as? com.google.firebase.Timestamp)?.seconds ?: 0 >= todayStart }
+        
+        var workoutId = latest?.first
+        var comp = (latest?.second?.get("exercisesCompleted") as? Number)?.toInt() ?: 0
+
+        // If no workout today, or the latest one is already finished, start a new one
+        if (workoutId == null || comp >= totalCount) {
+            workoutId = startWorkout(planId, totalCount)
+            comp = 0
+        }
+
+        if (comp < totalCount) {
+            val newComp = comp + 1
+            if (newComp >= totalCount) {
+                completeWorkout(workoutId, newComp)
+            } else {
+                db.collection("workouts").document(workoutId).update("exercisesCompleted", newComp).await()
+            }
+            return workoutId
+        }
+        return null
+    }
+
     suspend fun submitFeedback(workoutId: String, painLevel: Int, difficulty: Int, notes: String?) {
         val ref = db.collection("workouts").document(workoutId)
             .collection("feedback").document()
@@ -358,10 +389,19 @@ object FirebaseService {
     // ── Appointments ────────────────────────────────────────────────────
 
     suspend fun fetchAppointments(userId: String, role: String): List<Pair<String, Map<String, Any?>>> {
-        val field = if (role == "doctor") "doctorId" else "patientId"
+        val field = if (role == "doctor" || role == "admin") "doctorId" else "patientId"
         val snapshot = db.collection("appointments")
             .whereEqualTo(field, userId)
             .orderBy("dateTime", Query.Direction.ASCENDING)
+            .get().await()
+        return snapshot.documents.map { it.id to (it.data ?: emptyMap()) }
+    }
+
+    /** Fallback when composite index is missing — fetches without ordering. */
+    suspend fun fetchAppointmentsUnordered(userId: String, role: String): List<Pair<String, Map<String, Any?>>> {
+        val field = if (role == "doctor" || role == "admin") "doctorId" else "patientId"
+        val snapshot = db.collection("appointments")
+            .whereEqualTo(field, userId)
             .get().await()
         return snapshot.documents.map { it.id to (it.data ?: emptyMap()) }
     }
@@ -377,6 +417,35 @@ object FirebaseService {
 
     suspend fun updateAppointment(id: String, fields: Map<String, Any>) {
         db.collection("appointments").document(id).update(fields).await()
+    }
+
+    // ── Workout Completion Tracking ─────────────────────────────────────
+
+    /**
+     * Count how many workouts were completed today for a specific patient.
+     */
+    suspend fun fetchWorkoutCompletionsToday(patientId: String): Int {
+        val todayStart = java.time.LocalDate.now()
+            .atStartOfDay(java.time.ZoneId.systemDefault())
+            .toInstant()
+        val timestamp = com.google.firebase.Timestamp(todayStart.epochSecond, 0)
+        
+        return try {
+            val snapshot = db.collection("workouts")
+                .whereEqualTo("patientId", patientId)
+                .whereGreaterThanOrEqualTo("completedAt", timestamp)
+                .get().await()
+            snapshot.size()
+        } catch (_: Exception) {
+            // If composite index missing, count manually
+            val snapshot = db.collection("workouts")
+                .whereEqualTo("patientId", patientId)
+                .get().await()
+            snapshot.documents.count { doc ->
+                val completedAt = doc.getTimestamp("completedAt")
+                completedAt != null && completedAt.toDate().toInstant().isAfter(todayStart)
+            }
+        }
     }
 
     // ── Notifications ───────────────────────────────────────────────────
@@ -475,5 +544,108 @@ object FirebaseService {
         
         // Get the download URL
         return videoRef.downloadUrl.await().toString()
+    }
+
+    // ── Post-Workout Feedback ───────────────────────────────────────────
+
+    /**
+     * Submit post-workout feedback to a top-level collection.
+     */
+    suspend fun submitPostWorkoutFeedback(data: Map<String, Any?>) {
+        val ref = db.collection("postWorkoutFeedback").document()
+        val mutableData = data.toMutableMap()
+        mutableData["id"] = ref.id
+        ref.set(mutableData).await()
+    }
+
+    suspend fun fetchPatientFeedbacks(patientId: String): List<Pair<String, Map<String, Any?>>> {
+        val snapshot = db.collection("postWorkoutFeedback")
+            .whereEqualTo("patientId", patientId)
+            .get().await()
+        return snapshot.documents.map { it.id to (it.data ?: emptyMap()) }
+            .sortedByDescending { (it.second["submittedAt"] as? com.google.firebase.Timestamp)?.seconds ?: 0L }
+    }
+
+    suspend fun fetchDoctorFeedbacks(doctorId: String): List<Pair<String, Map<String, Any?>>> {
+        val snapshot = db.collection("postWorkoutFeedback")
+            .whereEqualTo("doctorId", doctorId)
+            .get().await()
+        return snapshot.documents.map { it.id to (it.data ?: emptyMap()) }
+            .sortedByDescending { (it.second["submittedAt"] as? com.google.firebase.Timestamp)?.seconds ?: 0L }
+    }
+
+    suspend fun fetchAllFeedbacks(): List<Pair<String, Map<String, Any?>>> {
+        val snapshot = db.collection("postWorkoutFeedback")
+            .orderBy("submittedAt", Query.Direction.DESCENDING)
+            .get().await()
+        return snapshot.documents.map { it.id to (it.data ?: emptyMap()) }
+    }
+
+    // ── Password Change ─────────────────────────────────────────────────
+
+    /**
+     * Re-authenticate with old password and update to new password.
+     */
+    suspend fun changePassword(oldPassword: String, newPassword: String) {
+        val user = auth.currentUser ?: throw Exception("Not authenticated")
+        val email = user.email ?: throw Exception("No email on account")
+
+        // Re-authenticate
+        val credential = com.google.firebase.auth.EmailAuthProvider.getCredential(email, oldPassword)
+        user.reauthenticate(credential).await()
+
+        // Update password
+        user.updatePassword(newPassword).await()
+    }
+
+    // ── Chat Messaging ──────────────────────────────────────────────────
+
+    suspend fun sendChatMessage(patientId: String, senderId: String, senderName: String, text: String) {
+        val msg = mapOf(
+            "id" to UUID.randomUUID().toString(),
+            "senderId" to senderId,
+            "senderName" to senderName,
+            "text" to text,
+            "timestamp" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+        )
+        db.collection("chats").document(patientId).collection("messages").add(msg).await()
+    }
+
+    fun observeChatMessages(patientId: String): kotlinx.coroutines.flow.Flow<List<Map<String, Any?>>> = kotlinx.coroutines.flow.callbackFlow {
+        val listener = db.collection("chats").document(patientId).collection("messages")
+            .orderBy("timestamp", com.google.firebase.firestore.Query.Direction.ASCENDING)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    close(error)
+                    return@addSnapshotListener
+                }
+                val msgs = snapshot?.documents?.mapNotNull { doc ->
+                    val data = doc.data ?: return@mapNotNull null
+                    data.toMutableMap().apply { put("docId", doc.id) }
+                } ?: emptyList()
+                trySend(msgs)
+            }
+        awaitClose { listener.remove() }
+    }
+
+    // ── Global Settings ──────────────────────────────────────────────────
+
+    suspend fun fetchSessionLocksEnabled(): Boolean {
+        return try {
+            val doc = db.collection("settings").document("appSettings").get().await()
+            if (doc.exists()) {
+                doc.getBoolean("sessionLocksEnabled") ?: true
+            } else {
+                true
+            }
+        } catch (e: Exception) {
+            true
+        }
+    }
+
+    suspend fun updateSessionLocksEnabled(enabled: Boolean) {
+        db.collection("settings").document("appSettings")
+            .set(mapOf("sessionLocksEnabled" to enabled), com.google.firebase.firestore.SetOptions.merge())
+            .await()
     }
 }
