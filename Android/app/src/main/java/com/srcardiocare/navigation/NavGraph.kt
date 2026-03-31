@@ -3,11 +3,20 @@ package com.srcardiocare.navigation
 
 import android.net.Uri
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavType
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import com.google.firebase.firestore.FirebaseFirestore
+import com.srcardiocare.core.auth.AuthManager
+import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.ui.screens.auth.LoginScreen
 import com.srcardiocare.ui.screens.auth.ChangePasswordScreen
 import com.srcardiocare.ui.screens.patient.PatientHomeScreen
@@ -78,6 +87,8 @@ fun SRCardiocareNavGraph(
     navController: NavHostController,
     startDestination: String = Route.Login.path
 ) {
+    CurrentUserDocGuard(navController = navController)
+
     NavHost(navController = navController, startDestination = startDestination) {
         composable(Route.Login.path) {
             LoginScreen(
@@ -307,5 +318,34 @@ fun SRCardiocareNavGraph(
                 onSuccess = { navController.popBackStack() }
             )
         }
+    }
+}
+
+@Composable
+private fun CurrentUserDocGuard(navController: NavHostController) {
+    val context = LocalContext.current
+    var redirected by remember { mutableStateOf(false) }
+
+    DisposableEffect(Unit) {
+        val uid = FirebaseService.currentUID
+        if (uid == null) return@DisposableEffect onDispose { }
+
+        val registration = FirebaseFirestore.getInstance()
+            .collection("users")
+            .document(uid)
+            .addSnapshotListener { snapshot, error ->
+                if (redirected || error != null) return@addSnapshotListener
+
+                if (snapshot != null && !snapshot.exists()) {
+                    redirected = true
+                    AuthManager(context).clearAll()
+                    navController.navigate(Route.Login.path) {
+                        popUpTo(0) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                }
+            }
+
+        onDispose { registration.remove() }
     }
 }

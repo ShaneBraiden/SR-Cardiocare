@@ -2,6 +2,7 @@
 package com.srcardiocare.ui.screens.doctor
 
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -25,8 +26,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -477,7 +480,21 @@ fun DoctorDashboardScreen(
     }
 }
 
-// ── Skeleton shimmer row ────────────────────────────────────────────────────
+// ── Pie Chart Colors ─────────────────────────────────────────────────────────
+private val pieChartColors = listOf(
+    Color(0xFF4CAF50),  // Green
+    Color(0xFF2196F3),  // Blue
+    Color(0xFFFF9800),  // Orange
+    Color(0xFF9C27B0),  // Purple
+    Color(0xFFE91E63),  // Pink
+    Color(0xFF00BCD4),  // Cyan
+    Color(0xFFFFEB3B),  // Yellow
+    Color(0xFF795548),  // Brown
+    Color(0xFF607D8B),  // Blue Grey
+    Color(0xFFFF5722)   // Deep Orange
+)
+
+// ── Workout Pie Chart Card ───────────────────────────────────────────────────
 @Composable
 private fun WorkoutChartCard(
     stats: List<PatientWorkoutStat>,
@@ -488,70 +505,123 @@ private fun WorkoutChartCard(
         shape = RoundedCornerShape(DesignTokens.Radius.Card),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
-        Column(modifier = Modifier.padding(DesignTokens.Spacing.LG)) {
+        Column(
+            modifier = Modifier.padding(DesignTokens.Spacing.LG),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
             Text(
-                "Workout Completion Chart",
-                style = MaterialTheme.typography.titleSmall,
+                "Workout Completion",
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                "Patients who have workout activity",
+                "Patient workout sessions overview",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+            Spacer(modifier = Modifier.height(DesignTokens.Spacing.LG))
 
             if (stats.isEmpty()) {
-                Text(
-                    "No workout data yet.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Box(
+                    modifier = Modifier
+                        .size(240.dp)
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "No workout data yet.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             } else {
-                val maxCompleted = (stats.maxOfOrNull { it.completedSessions } ?: 1).coerceAtLeast(1)
+                val totalSessions = stats.sumOf { it.completedSessions }.toFloat()
+                val sweepAngles = if (totalSessions > 0) {
+                    stats.map { (it.completedSessions / totalSessions) * 360f }
+                } else {
+                    stats.map { 0f }
+                }
 
-                stats.forEachIndexed { index, stat ->
-                    Column {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                stat.patientName,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                "${stat.completedSessions} completed / ${stat.totalSessions} sessions",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                // Big Pie Chart
+                Box(
+                    modifier = Modifier
+                        .size(240.dp)
+                        .padding(8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        var startAngle = -90f
+                        val strokeWidth = 0f
+                        val padding = 8.dp.toPx()
+                        val chartSize = Size(size.width - padding * 2, size.height - padding * 2)
+
+                        sweepAngles.forEachIndexed { index, sweepAngle ->
+                            if (sweepAngle > 0f) {
+                                drawArc(
+                                    color = pieChartColors[index % pieChartColors.size],
+                                    startAngle = startAngle,
+                                    sweepAngle = sweepAngle,
+                                    useCenter = true,
+                                    topLeft = Offset(padding, padding),
+                                    size = chartSize
+                                )
+                                startAngle += sweepAngle
+                            }
                         }
+                    }
 
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        LinearProgressIndicator(
-                            progress = { stat.completedSessions.toFloat() / maxCompleted.toFloat() },
-                            modifier = Modifier.fillMaxWidth(),
-                            color = DesignTokens.Colors.Primary,
-                            trackColor = DesignTokens.Colors.NeutralLight
-                        )
-
-                        Spacer(modifier = Modifier.height(4.dp))
-
+                    // Center label with total
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            "Last completed: ${formatWorkoutDate(stat.lastCompletedAtMs)}",
+                            "${totalSessions.toInt()}",
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            "Total Sessions",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                }
 
-                    if (index < stats.lastIndex) {
-                        Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+                Spacer(modifier = Modifier.height(DesignTokens.Spacing.LG))
+
+                // Legend
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    stats.forEachIndexed { index, stat ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(12.dp)
+                                        .clip(CircleShape)
+                                        .background(pieChartColors[index % pieChartColors.size])
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    stat.patientName,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            Text(
+                                "${stat.completedSessions} sessions",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             }
