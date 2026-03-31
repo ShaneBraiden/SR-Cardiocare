@@ -1,16 +1,8 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108"
-    android:tint="#FFFFFF">
-    <!-- SR-Cardiocare medical cross icon — white on teal for high contrast -->
-    <group
-        android:translateX="27"
-        android:translateY="27">
-        <!-- Cross shape (medical/rehab symbol) -->
-        <path
-            android:fillColor="#FFFFFF"
-            android:pathData="M22,0 L32,0 L32,22 L54,22 L54,32 L32,32 L32,54 L22,54 L22,32 L0,32 L0,22 L22,22 Z"/>
-    </group>
-</vector>
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:width="76dp"
+        android:height="76dp"
+        android:gravity="center"
+        android:drawable="@drawable/sr_logo" />
+</layer-list>

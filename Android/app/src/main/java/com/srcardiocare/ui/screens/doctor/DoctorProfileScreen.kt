@@ -19,6 +19,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.srcardiocare.core.auth.AuthManager
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.ui.components.InitialsAvatar
+import com.srcardiocare.ui.components.LogoutConfirmDialog
+import com.srcardiocare.ui.components.ProfileInfoRow
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
 
@@ -55,27 +58,15 @@ fun DoctorProfileScreen(
     }
 
     // ── Logout confirm dialog ────────────────────────────────────────────
-    if (showLogoutDialog) {
-        AlertDialog(
-            onDismissRequest = { showLogoutDialog = false },
-            title = { Text("Sign Out") },
-            text  = { Text("Are you sure you want to sign out?") },
-            confirmButton = {
-                TextButton(onClick = {
-                    FirebaseService.logout()
-                    AuthManager(context).clearAll()
-                    onLogout()
-                }) {
-                    Text("Sign Out", color = DesignTokens.Colors.Error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showLogoutDialog = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
+    LogoutConfirmDialog(
+        show = showLogoutDialog,
+        onDismiss = { showLogoutDialog = false },
+        onConfirm = {
+            FirebaseService.logout()
+            AuthManager(context).clearAll()
+            onLogout()
+        }
+    )
 
     Scaffold(
         topBar = {
@@ -116,20 +107,7 @@ fun DoctorProfileScreen(
 
             // ── Avatar ──────────────────────────────────────────────────
             val initials = "${firstName.firstOrNull() ?: ""}${lastName.firstOrNull() ?: ""}".uppercase()
-            Box(
-                modifier = Modifier
-                    .size(88.dp)
-                    .clip(CircleShape)
-                    .background(DesignTokens.Colors.PrimaryLight),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = initials,
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = DesignTokens.Colors.PrimaryDark
-                )
-            }
+            InitialsAvatar(initials = initials, size = 88.dp)
 
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
 
@@ -235,13 +213,4 @@ fun DoctorProfileScreen(
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.XL))
         }
     }
-}
-
-@Composable
-private fun ProfileInfoRow(label: String, value: String) {
-    Column(modifier = Modifier.padding(vertical = DesignTokens.Spacing.XS)) {
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Medium)
-    }
-    HorizontalDivider(color = DesignTokens.Colors.NeutralLight, thickness = 0.5.dp)
 }

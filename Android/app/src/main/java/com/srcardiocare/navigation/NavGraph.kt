@@ -83,7 +83,8 @@ fun SRCardiocareNavGraph(
                         else -> Route.PatientHome.path // Skip onboarding, go directly to home
                     }
                     navController.navigate(dest) { popUpTo(Route.Login.path) { inclusive = true } }
-                }
+                },
+                onChangePassword = { navController.navigate(Route.ChangePassword.path) }
             )
         }
 

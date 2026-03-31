@@ -94,7 +94,7 @@ data class Appointment(
     val notes: String? = null
 )
 
-enum class AppointmentStatus { SCHEDULED, CONFIRMED, CANCELLED, COMPLETED }
+enum class AppointmentStatus { SCHEDULED, PENDING, CONFIRMED, CANCELLED, COMPLETED }
 
 data class AppNotification(
     val id: String = UUID.randomUUID().toString(),

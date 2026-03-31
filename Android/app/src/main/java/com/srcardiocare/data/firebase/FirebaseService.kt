@@ -459,6 +459,30 @@ object FirebaseService {
         return snapshot.documents.map { it.id to (it.data ?: emptyMap()) }
     }
 
+    suspend fun createNotification(
+        userId: String,
+        title: String,
+        body: String,
+        type: String,
+        appointmentId: String? = null,
+        action: String? = null
+    ): String {
+        val ref = db.collection("notifications").document()
+        val data = mutableMapOf<String, Any>(
+            "id" to ref.id,
+            "userId" to userId,
+            "title" to title,
+            "body" to body,
+            "type" to type,
+            "isRead" to false,
+            "createdAt" to FieldValue.serverTimestamp()
+        )
+        if (!appointmentId.isNullOrBlank()) data["appointmentId"] = appointmentId
+        if (!action.isNullOrBlank()) data["action"] = action
+        ref.set(data).await()
+        return ref.id
+    }
+
     suspend fun markNotificationRead(id: String) {
         db.collection("notifications").document(id)
             .update("isRead", true).await()

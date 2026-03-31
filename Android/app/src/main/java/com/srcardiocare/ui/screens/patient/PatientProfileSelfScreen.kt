@@ -19,6 +19,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.srcardiocare.core.auth.AuthManager
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.ui.components.InitialsAvatar
+import com.srcardiocare.ui.components.LogoutConfirmDialog
+import com.srcardiocare.ui.components.ProfileInfoRow
 import com.srcardiocare.ui.theme.DesignTokens
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -65,27 +68,15 @@ fun PatientProfileSelfScreen(
         isLoading = false
     }
 
-    if (showLogoutDialog) {
-        AlertDialog(
-            onDismissRequest = { showLogoutDialog = false },
-            title = { Text("Sign Out", fontWeight = FontWeight.Bold) },
-            text = { Text("Are you sure you want to sign out?") },
-            confirmButton = {
-                TextButton(onClick = {
-                    FirebaseService.logout()
-                    AuthManager(context).clearAll()
-                    onLogout()
-                }) {
-                    Text("Sign Out", color = DesignTokens.Colors.Error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showLogoutDialog = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
+    LogoutConfirmDialog(
+        show = showLogoutDialog,
+        onDismiss = { showLogoutDialog = false },
+        onConfirm = {
+            FirebaseService.logout()
+            AuthManager(context).clearAll()
+            onLogout()
+        }
+    )
 
     val initials = "${firstName.firstOrNull() ?: ""}${lastName.firstOrNull() ?: ""}".uppercase()
 
@@ -118,20 +109,7 @@ fun PatientProfileSelfScreen(
                 Spacer(modifier = Modifier.height(DesignTokens.Spacing.XXXL))
 
                 // Avatar
-                Box(
-                    modifier = Modifier
-                        .size(96.dp)
-                        .clip(CircleShape)
-                        .background(DesignTokens.Colors.PrimaryLight),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        initials.ifBlank { "?" },
-                        style = MaterialTheme.typography.headlineLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = DesignTokens.Colors.PrimaryDark
-                    )
-                }
+                InitialsAvatar(initials = initials, size = 96.dp)
 
                 Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
                 Text(
@@ -153,11 +131,9 @@ fun PatientProfileSelfScreen(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                 ) {
                     Column(modifier = Modifier.padding(DesignTokens.Spacing.XL)) {
-                        ProfileInfoRow("Injuries / Condition", injuries)
-                        HorizontalDivider(modifier = Modifier.padding(vertical = DesignTokens.Spacing.MD), color = DesignTokens.Colors.NeutralLight)
-                        ProfileInfoRow("Assigned Doctor", assignedDoctor)
-                        HorizontalDivider(modifier = Modifier.padding(vertical = DesignTokens.Spacing.MD), color = DesignTokens.Colors.NeutralLight)
-                        ProfileInfoRow("Email", email)
+                        ProfileInfoRow(label = "Injuries / Condition", value = injuries)
+                        ProfileInfoRow(label = "Assigned Doctor", value = assignedDoctor)
+                        ProfileInfoRow(label = "Email", value = email, showDivider = false)
                     }
                 }
 
@@ -197,14 +173,5 @@ fun PatientProfileSelfScreen(
                 Spacer(modifier = Modifier.height(DesignTokens.Spacing.XXXL))
             }
         }
-    }
-}
-
-@Composable
-private fun ProfileInfoRow(label: String, value: String) {
-    Column {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(value.ifBlank { "—" }, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
     }
 }

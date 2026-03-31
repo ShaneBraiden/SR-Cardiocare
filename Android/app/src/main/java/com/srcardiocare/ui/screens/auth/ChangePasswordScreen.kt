@@ -19,11 +19,13 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import com.google.firebase.firestore.FirebaseFirestore
 import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.core.security.PasswordValidator
 import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -203,6 +205,15 @@ fun ChangePasswordScreen(
                     scope.launch {
                         try {
                             FirebaseService.changePassword(oldPassword, newPassword)
+                            // Clear the mustChangePassword flag
+                            FirebaseService.currentUID?.let { uid ->
+                                try {
+                                    FirebaseFirestore.getInstance()
+                                        .collection("users").document(uid)
+                                        .update("mustChangePassword", false)
+                                        .await()
+                                } catch (_: Exception) { }
+                            }
                             successMessage = "Password changed successfully!"
                             isLoading = false
                             // Navigate back after short delay

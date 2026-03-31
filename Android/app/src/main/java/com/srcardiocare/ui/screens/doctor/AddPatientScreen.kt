@@ -14,10 +14,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import com.google.firebase.auth.FirebaseAuth
 import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.core.security.InputValidator
-import com.srcardiocare.core.security.PasswordGenerator
 import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
@@ -162,14 +160,14 @@ fun AddPatientScreen(onSaved: () -> Unit, onBack: () -> Unit) {
 
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.SM))
 
-            // Password reset info
+            // Password info
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(DesignTokens.Radius.Base),
                 colors = CardDefaults.cardColors(containerColor = DesignTokens.Colors.PrimaryLight.copy(alpha = 0.3f))
             ) {
                 Text(
-                    "A password reset email will be sent to the patient. They must set their own password before logging in.",
+                    "Default password: password@123. The patient will be prompted to change it on first login.",
                     modifier = Modifier.padding(DesignTokens.Spacing.MD),
                     style = MaterialTheme.typography.bodySmall,
                     color = DesignTokens.Colors.PrimaryDark
@@ -216,20 +214,17 @@ fun AddPatientScreen(onSaved: () -> Unit, onBack: () -> Unit) {
 
                     scope.launch {
                         try {
-                            // Generate secure temporary password
-                            val tempPassword = PasswordGenerator.generateTemporaryPassword()
+                            // Use default password - user can change on first login
+                            val defaultPassword = "password@123"
 
                             // Create account WITHOUT switching auth session
                             val newPatientUid = FirebaseService.registerOther(
                                 email = emailValidation.sanitizedValue,
-                                password = tempPassword,
+                                password = defaultPassword,
                                 firstName = firstName,
                                 lastName = lastName,
                                 role = "patient"
                             )
-
-                            // Send password reset email so user can set their own password
-                            FirebaseAuth.getInstance().sendPasswordResetEmail(emailValidation.sanitizedValue)
 
                             // Write extra fields directly to the new patient's doc
                             val extraFields = mutableMapOf<String, Any>()
@@ -247,15 +242,16 @@ fun AddPatientScreen(onSaved: () -> Unit, onBack: () -> Unit) {
                             if (creatingDoctorUid != null) {
                                 extraFields["assignedDoctorId"] = creatingDoctorUid
                             }
-                            if (extraFields.isNotEmpty()) {
-                                com.google.firebase.firestore.FirebaseFirestore.getInstance()
-                                    .collection("users").document(newPatientUid)
-                                    .update(extraFields)
-                                    .await()
-                            }
+                            // Flag for first login password change prompt
+                            extraFields["mustChangePassword"] = true
+
+                            com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                                .collection("users").document(newPatientUid)
+                                .update(extraFields)
+                                .await()
 
                             // Show success and navigate back
-                            snackbarHostState.showSnackbar("Patient account created! Password reset email sent.")
+                            snackbarHostState.showSnackbar("Patient account created! Default password: password@123")
                             onSaved()
                         } catch (e: Exception) {
                             isLoading = false

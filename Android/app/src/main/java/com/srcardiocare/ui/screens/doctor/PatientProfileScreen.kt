@@ -21,6 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.ui.components.InitialsAvatar
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -303,15 +304,10 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.XL))
 
             // Avatar
-            Box(
-                modifier = Modifier
-                    .size(80.dp)
-                    .clip(CircleShape)
-                    .background(DesignTokens.Colors.PrimaryLight),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(patientInitials, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = DesignTokens.Colors.PrimaryDark)
-            }
+            InitialsAvatar(
+                initials = patientInitials,
+                size = 80.dp
+            )
 
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
             Text(patientName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
@@ -682,14 +678,5 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.XXL))
         }
         }
-    }
-}
-
-
-@Composable
-private fun StatItem(value: String, label: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = DesignTokens.Colors.Primary)
-        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
     }
 }

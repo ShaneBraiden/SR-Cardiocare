@@ -2,6 +2,7 @@
 package com.srcardiocare.ui.screens.doctor
 
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -26,13 +27,24 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.srcardiocare.R
 import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.core.security.InputValidator
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.ui.components.StatItem
+import com.srcardiocare.ui.components.StatItemStyle
 import com.srcardiocare.ui.theme.DesignTokens
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 private enum class UserStatus { ON_TRACK, NEEDS_ATTENTION, INACTIVE }
 
@@ -45,6 +57,20 @@ private data class UserItem(
     val isOnline: Boolean = false,
     val initials: String
 )
+
+private data class PatientWorkoutStat(
+    val patientId: String,
+    val patientName: String,
+    val completedSessions: Int,
+    val totalSessions: Int,
+    val lastCompletedAtMs: Long?
+)
+
+private fun formatWorkoutDate(epochMs: Long?): String {
+    if (epochMs == null) return "No completion yet"
+    val formatter = DateTimeFormatter.ofPattern("MMM d, yyyy")
+    return Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault()).format(formatter)
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,6 +86,7 @@ fun DoctorDashboardScreen(
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var allUsers by remember { mutableStateOf<List<UserItem>>(emptyList()) }
+    var workoutStats by remember { mutableStateOf<List<PatientWorkoutStat>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
     var doctorName by remember { mutableStateOf("") }
@@ -132,8 +159,57 @@ fun DoctorDashboardScreen(
                     initials = initials.ifBlank { "?" }
                 )
             }
+
+            val patientRefs = users.filter { (_, data) ->
+                ((data["role"] as? String) ?: "patient").lowercase() == "patient"
+            }
+
+            workoutStats = coroutineScope {
+                patientRefs.map { (patientId, data) ->
+                    async {
+                        val fName = data["firstName"] as? String ?: ""
+                        val lName = data["lastName"] as? String ?: ""
+                        val patientName = "$fName $lName".trim().ifBlank { "Unknown" }
+
+                        try {
+                            val workouts = FirebaseService.fetchWorkouts(patientId)
+                            val completedSessions = workouts.count { (_, workoutData) ->
+                                val completedAt = workoutData["completedAt"]
+                                completedAt is com.google.firebase.Timestamp || completedAt is String
+                            }
+                            val totalSessions = workouts.size
+
+                            val lastCompletedAt = workouts.mapNotNull { (_, workoutData) ->
+                                when (val completedAt = workoutData["completedAt"]) {
+                                    is com.google.firebase.Timestamp -> completedAt.toDate().time
+                                    is String -> runCatching { Instant.parse(completedAt).toEpochMilli() }.getOrNull()
+                                    else -> null
+                                }
+                            }.maxOrNull()
+
+                            if (totalSessions > 0) {
+                                PatientWorkoutStat(
+                                    patientId = patientId,
+                                    patientName = patientName,
+                                    completedSessions = completedSessions,
+                                    totalSessions = totalSessions,
+                                    lastCompletedAtMs = lastCompletedAt
+                                )
+                            } else {
+                                null
+                            }
+                        } catch (_: Exception) {
+                            null
+                        }
+                    }
+                }.awaitAll()
+                    .filterNotNull()
+                    .sortedByDescending { it.completedSessions }
+            }
+
             errorMessage = null
         } catch (e: Exception) {
+            workoutStats = emptyList()
             errorMessage = ErrorHandler.getDisplayMessage(e, "load data")
         }
         isLoading = false
@@ -158,13 +234,33 @@ fun DoctorDashboardScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(doctorName, fontWeight = FontWeight.Bold) },
-                actions = {
-                    IconButton(onClick = onFeedbacks) {
-                        Icon(Icons.Default.Person, contentDescription = "Patient Feedbacks")
+                title = {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Image(
+                            painter = painterResource(id = R.drawable.sr_logo),
+                            contentDescription = "SrCardioCare logo",
+                            modifier = Modifier.size(38.dp),
+                            contentScale = ContentScale.Fit
+                        )
+                        Column {
+                            Text(
+                                "SrCardioCare",
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Text(
+                                "A digital health platform for Cardiac rehabilitation",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         },
         containerColor = MaterialTheme.colorScheme.background,
@@ -202,6 +298,7 @@ fun DoctorDashboardScreen(
                     icon = { Icon(Icons.Default.People, contentDescription = "Patients") }
                 )
                 NavigationBarItem(selected = false, onClick = onExerciseLibrary, label = { Text("Exercises") }, icon = { Icon(Icons.Default.FitnessCenter, contentDescription = "Exercises") })
+                NavigationBarItem(selected = false, onClick = onFeedbacks, label = { Text("Feedbacks") }, icon = { Icon(Icons.Default.PlayArrow, contentDescription = "Feedbacks") })
                 NavigationBarItem(selected = false, onClick = onSchedule, label = { Text("Schedule") }, icon = { Icon(Icons.Default.CalendarMonth, contentDescription = "Schedule") })
                 NavigationBarItem(selected = false, onClick = onProfile, label = { Text("Profile") }, icon = { Icon(Icons.Default.Person, contentDescription = "Profile") })
             }
@@ -244,17 +341,29 @@ fun DoctorDashboardScreen(
                                 horizontalArrangement = Arrangement.SpaceAround
                             ) {
                                 if (userRole == "admin") {
-                                    StatItem(value = allUsers.size.toString(), label = "Total Users")
-                                    StatItem(value = patientCount.toString(), label = "Patients")
-                                    StatItem(value = doctorCount.toString(), label = "Doctors")
-                                    StatItem(value = onlineCount.toString(), label = "Online")
+                                    StatItem(value = allUsers.size.toString(), label = "Total Users", style = StatItemStyle.LIGHT)
+                                    StatItem(value = patientCount.toString(), label = "Patients", style = StatItemStyle.LIGHT)
+                                    StatItem(value = doctorCount.toString(), label = "Doctors", style = StatItemStyle.LIGHT)
+                                    StatItem(value = onlineCount.toString(), label = "Online", style = StatItemStyle.LIGHT)
                                 } else {
-                                    StatItem(value = allUsers.size.toString(), label = "Total Patients")
-                                    StatItem(value = allUsers.count { it.status == UserStatus.ON_TRACK }.toString(), label = "On Track")
-                                    StatItem(value = onlineCount.toString(), label = "Online Now")
+                                    StatItem(value = allUsers.size.toString(), label = "Total Patients", style = StatItemStyle.LIGHT)
+                                    StatItem(value = allUsers.count { it.status == UserStatus.ON_TRACK }.toString(), label = "On Track", style = StatItemStyle.LIGHT)
+                                    StatItem(value = onlineCount.toString(), label = "Online Now", style = StatItemStyle.LIGHT)
                                 }
                             }
                         }
+                        Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+                    }
+                }
+
+                if (!isLoading && errorMessage == null) {
+                    item {
+                        WorkoutChartCard(
+                            stats = workoutStats,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = DesignTokens.Spacing.XL)
+                        )
                         Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
                     }
                 }
@@ -379,6 +488,87 @@ fun DoctorDashboardScreen(
 }
 
 // ── Skeleton shimmer row ────────────────────────────────────────────────────
+@Composable
+private fun WorkoutChartCard(
+    stats: List<PatientWorkoutStat>,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(DesignTokens.Radius.Card),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(modifier = Modifier.padding(DesignTokens.Spacing.LG)) {
+            Text(
+                "Workout Completion Chart",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                "Patients who have workout activity",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+
+            if (stats.isEmpty()) {
+                Text(
+                    "No workout data yet.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                val maxCompleted = (stats.maxOfOrNull { it.completedSessions } ?: 1).coerceAtLeast(1)
+
+                stats.forEachIndexed { index, stat ->
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                stat.patientName,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                "${stat.completedSessions} completed / ${stat.totalSessions} sessions",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        LinearProgressIndicator(
+                            progress = { stat.completedSessions.toFloat() / maxCompleted.toFloat() },
+                            modifier = Modifier.fillMaxWidth(),
+                            color = DesignTokens.Colors.Primary,
+                            trackColor = DesignTokens.Colors.NeutralLight
+                        )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Text(
+                            "Last completed: ${formatWorkoutDate(stat.lastCompletedAtMs)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    if (index < stats.lastIndex) {
+                        Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun SkeletonRow() {
     val shimmerColors = listOf(
@@ -544,22 +734,5 @@ private fun UserRow(user: UserItem, isAdmin: Boolean, onClick: () -> Unit) {
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun StatItem(value: String, label: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text = value,
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-            color = Color.White
-        )
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = Color.White.copy(alpha = 0.8f)
-        )
     }
 }
