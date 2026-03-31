@@ -2,6 +2,7 @@
 // SR-Cardiocare — Video workout player with exercise instructions
 // Stitch Screen: b7eefba8 (22_workout_player)
 // Shows: video player area, play/pause/skip controls, exercise details, rep counter
+// Supports: aspect ratio detection, landscape fullscreen for landscape videos
 
 import UIKit
 import AVFoundation
@@ -12,11 +13,20 @@ final class WorkoutPlayerViewController: UIViewController {
 
     var exerciseName: String = "Knee Flexion"
     var exerciseDetail: String = "3 Sets • 10 Reps"
+    var videoURL: URL?
+
     private var isPlaying = false
     private var currentSet = 1
     private var totalSets = 3
     private var currentRep = 0
     private var totalReps = 10
+
+    private var player: AVPlayer?
+    private var playerLayer: AVPlayerLayer?
+    private var isVideoLandscape: Bool = false
+    private var isFullscreen: Bool = false
+    private var videoContainerHeightConstraint: NSLayoutConstraint?
+    private var originalVideoFrame: CGRect = .zero
 
     // MARK: - UI
 
@@ -57,6 +67,7 @@ final class WorkoutPlayerViewController: UIViewController {
     private let videoContainer: UIView = {
         let v = UIView()
         v.backgroundColor = .black
+        v.clipsToBounds = true
         v.translatesAutoresizingMaskIntoConstraints = false
         return v
     }()
@@ -70,6 +81,22 @@ final class WorkoutPlayerViewController: UIViewController {
         b.layer.cornerRadius = 32
         b.translatesAutoresizingMaskIntoConstraints = false
         return b
+    }()
+
+    private let fullscreenButton: UIButton = {
+        let b = UIButton(type: .system)
+        b.setImage(UIImage(systemName: "arrow.up.left.and.arrow.down.right"), for: .normal)
+        b.tintColor = .white
+        b.translatesAutoresizingMaskIntoConstraints = false
+        return b
+    }()
+
+    private let aspectRatioLabel: UILabel = {
+        let l = UILabel()
+        l.font = DesignTokens.Typography.inter(DesignTokens.Typography.caption2)
+        l.textColor = .white.withAlphaComponent(0.7)
+        l.translatesAutoresizingMaskIntoConstraints = false
+        return l
     }()
 
     private let progressBar: UIProgressView = {
@@ -203,6 +230,16 @@ final class WorkoutPlayerViewController: UIViewController {
         setupUI()
         setupActions()
         updateCounterLabels()
+        setupVideoPlayer()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        playerLayer?.frame = videoContainer.bounds
+    }
+
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        return isFullscreen && isVideoLandscape ? .landscape : .portrait
     }
 
     // MARK: - Setup
@@ -229,12 +266,20 @@ final class WorkoutPlayerViewController: UIViewController {
         ])
 
         // Video overlay
-        videoContainer.addSubviews(playOverlayButton, progressBar, timeCurrentLabel, timeTotalLabel)
+        videoContainer.addSubviews(playOverlayButton, fullscreenButton, aspectRatioLabel, progressBar, timeCurrentLabel, timeTotalLabel)
         NSLayoutConstraint.activate([
             playOverlayButton.centerXAnchor.constraint(equalTo: videoContainer.centerXAnchor),
             playOverlayButton.centerYAnchor.constraint(equalTo: videoContainer.centerYAnchor),
             playOverlayButton.widthAnchor.constraint(equalToConstant: 64),
             playOverlayButton.heightAnchor.constraint(equalToConstant: 64),
+
+            fullscreenButton.topAnchor.constraint(equalTo: videoContainer.topAnchor, constant: 12),
+            fullscreenButton.trailingAnchor.constraint(equalTo: videoContainer.trailingAnchor, constant: -12),
+            fullscreenButton.widthAnchor.constraint(equalToConstant: 32),
+            fullscreenButton.heightAnchor.constraint(equalToConstant: 32),
+
+            aspectRatioLabel.topAnchor.constraint(equalTo: videoContainer.topAnchor, constant: 12),
+            aspectRatioLabel.leadingAnchor.constraint(equalTo: videoContainer.leadingAnchor, constant: 12),
 
             progressBar.leadingAnchor.constraint(equalTo: videoContainer.leadingAnchor, constant: 16),
             progressBar.trailingAnchor.constraint(equalTo: videoContainer.trailingAnchor, constant: -16),
@@ -300,6 +345,9 @@ final class WorkoutPlayerViewController: UIViewController {
         // Main layout
         view.addSubviews(headerView, videoContainer, controlsView, scrollView, finishButton)
 
+        // Create height constraint for video container
+        videoContainerHeightConstraint = videoContainer.heightAnchor.constraint(equalTo: view.widthAnchor, multiplier: 9.0/16.0)
+
         NSLayoutConstraint.activate([
             headerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -309,7 +357,7 @@ final class WorkoutPlayerViewController: UIViewController {
             videoContainer.topAnchor.constraint(equalTo: headerView.bottomAnchor),
             videoContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             videoContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            videoContainer.heightAnchor.constraint(equalTo: view.widthAnchor, multiplier: 9.0/16.0),
+            videoContainerHeightConstraint!,
 
             controlsView.topAnchor.constraint(equalTo: videoContainer.bottomAnchor),
             controlsView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -336,6 +384,81 @@ final class WorkoutPlayerViewController: UIViewController {
         mainPlayButton.addTarget(self, action: #selector(togglePlay), for: .touchUpInside)
         playOverlayButton.addTarget(self, action: #selector(togglePlay), for: .touchUpInside)
         finishButton.addTarget(self, action: #selector(finishSetTapped), for: .touchUpInside)
+        fullscreenButton.addTarget(self, action: #selector(toggleFullscreen), for: .touchUpInside)
+    }
+
+    private func setupVideoPlayer() {
+        guard let url = videoURL else {
+            // Use placeholder for demo
+            aspectRatioLabel.text = "16:9"
+            return
+        }
+
+        let asset = AVAsset(url: url)
+        detectVideoAspectRatio(asset: asset)
+
+        let playerItem = AVPlayerItem(asset: asset)
+        player = AVPlayer(playerItem: playerItem)
+
+        playerLayer = AVPlayerLayer(player: player)
+        playerLayer?.videoGravity = .resizeAspect
+        playerLayer?.frame = videoContainer.bounds
+        videoContainer.layer.insertSublayer(playerLayer!, at: 0)
+    }
+
+    private func detectVideoAspectRatio(asset: AVAsset) {
+        guard let track = asset.tracks(withMediaType: .video).first else { return }
+
+        let size = track.naturalSize.applying(track.preferredTransform)
+        let width = abs(size.width)
+        let height = abs(size.height)
+
+        // Determine if video is landscape or portrait
+        isVideoLandscape = width > height
+
+        // Calculate aspect ratio
+        let aspectRatio = width / height
+        if aspectRatio > 1.5 {
+            aspectRatioLabel.text = "16:9"
+        } else if aspectRatio > 1.2 {
+            aspectRatioLabel.text = "4:3"
+        } else if aspectRatio > 0.8 {
+            aspectRatioLabel.text = "1:1"
+        } else if aspectRatio > 0.6 {
+            aspectRatioLabel.text = "4:5"
+        } else {
+            aspectRatioLabel.text = "9:16"
+        }
+
+        // Update video container height based on aspect ratio
+        updateVideoContainerForAspectRatio(width: width, height: height)
+
+        // Update fullscreen button visibility (only show for landscape videos)
+        fullscreenButton.isHidden = !isVideoLandscape
+    }
+
+    private func updateVideoContainerForAspectRatio(width: CGFloat, height: CGFloat) {
+        let aspectRatio = width / height
+
+        videoContainerHeightConstraint?.isActive = false
+
+        if isVideoLandscape {
+            // Landscape video: 16:9 or similar
+            videoContainerHeightConstraint = videoContainer.heightAnchor.constraint(
+                equalTo: view.widthAnchor,
+                multiplier: 1 / aspectRatio
+            )
+        } else {
+            // Portrait video: limit height to avoid taking too much space
+            let maxHeight = view.bounds.height * 0.5
+            let calculatedHeight = view.bounds.width / aspectRatio
+            videoContainerHeightConstraint = videoContainer.heightAnchor.constraint(
+                equalToConstant: min(calculatedHeight, maxHeight)
+            )
+        }
+
+        videoContainerHeightConstraint?.isActive = true
+        view.layoutIfNeeded()
     }
 
     private func updateCounterLabels() {
@@ -345,7 +468,11 @@ final class WorkoutPlayerViewController: UIViewController {
     // MARK: - Actions
 
     @objc private func backTapped() {
-        navigationController?.popViewController(animated: true)
+        if isFullscreen {
+            exitFullscreen()
+        } else {
+            navigationController?.popViewController(animated: true)
+        }
     }
 
     @objc private func togglePlay() {
@@ -354,6 +481,83 @@ final class WorkoutPlayerViewController: UIViewController {
         let icon = isPlaying ? "pause.fill" : "play.fill"
         mainPlayButton.setImage(UIImage(systemName: icon, withConfiguration: config), for: .normal)
         playOverlayButton.alpha = isPlaying ? 0 : 1
+
+        if isPlaying {
+            player?.play()
+        } else {
+            player?.pause()
+        }
+    }
+
+    @objc private func toggleFullscreen() {
+        // Only allow landscape fullscreen for landscape videos
+        guard isVideoLandscape else { return }
+
+        if isFullscreen {
+            exitFullscreen()
+        } else {
+            enterFullscreen()
+        }
+    }
+
+    private func enterFullscreen() {
+        isFullscreen = true
+        originalVideoFrame = videoContainer.frame
+
+        // Hide other UI elements
+        headerView.isHidden = true
+        controlsView.isHidden = true
+        scrollView.isHidden = true
+        finishButton.isHidden = true
+
+        // Rotate to landscape
+        let value = UIInterfaceOrientation.landscapeRight.rawValue
+        UIDevice.current.setValue(value, forKey: "orientation")
+
+        // Update video container to fullscreen
+        videoContainer.removeFromSuperview()
+        view.addSubview(videoContainer)
+
+        NSLayoutConstraint.activate([
+            videoContainer.topAnchor.constraint(equalTo: view.topAnchor),
+            videoContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            videoContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            videoContainer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+
+        fullscreenButton.setImage(UIImage(systemName: "arrow.down.right.and.arrow.up.left"), for: .normal)
+        view.layoutIfNeeded()
+        playerLayer?.frame = videoContainer.bounds
+    }
+
+    private func exitFullscreen() {
+        isFullscreen = false
+
+        // Rotate back to portrait
+        let value = UIInterfaceOrientation.portrait.rawValue
+        UIDevice.current.setValue(value, forKey: "orientation")
+
+        // Show other UI elements
+        headerView.isHidden = false
+        controlsView.isHidden = false
+        scrollView.isHidden = false
+        finishButton.isHidden = false
+
+        // Rebuild layout
+        videoContainer.removeFromSuperview()
+        view.insertSubview(videoContainer, belowSubview: controlsView)
+
+        videoContainerHeightConstraint = videoContainer.heightAnchor.constraint(equalTo: view.widthAnchor, multiplier: 9.0/16.0)
+        NSLayoutConstraint.activate([
+            videoContainer.topAnchor.constraint(equalTo: headerView.bottomAnchor),
+            videoContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            videoContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            videoContainerHeightConstraint!,
+        ])
+
+        fullscreenButton.setImage(UIImage(systemName: "arrow.up.left.and.arrow.down.right"), for: .normal)
+        view.layoutIfNeeded()
+        playerLayer?.frame = videoContainer.bounds
     }
 
     @objc private func finishSetTapped() {

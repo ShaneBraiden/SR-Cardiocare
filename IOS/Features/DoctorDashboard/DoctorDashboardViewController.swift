@@ -1,7 +1,7 @@
 // DoctorDashboardViewController.swift
 // SR-Cardiocare — Doctor Dashboard with patient overview
 // Stitch Screens: 7084435b (13_dashboard_v1), c51d9ae9 (26_dashboard_v2)
-// Shows: greeting, search bar, patient list with status badges, FAB for add patient
+// Shows: greeting, patient list with status badges, FAB for add patient
 
 import UIKit
 
@@ -10,11 +10,28 @@ final class DoctorDashboardViewController: UIViewController {
     // MARK: - Models
 
     struct PatientOverviewItem {
+        let id: String
         let name: String
         let condition: String
-        let status: PatientStatus
         let lastActivity: String
         let isOnline: Bool
+        let completedWorkouts: Int
+        let totalWorkouts: Int
+
+        // On Track = 100% completion
+        var status: PatientStatus {
+            if totalWorkouts == 0 {
+                return .inactive
+            }
+            let completionRate = Double(completedWorkouts) / Double(totalWorkouts)
+            if completionRate >= 1.0 {
+                return .onTrack
+            } else if completionRate >= 0.5 {
+                return .needsAttention
+            } else {
+                return .inactive
+            }
+        }
     }
 
     enum PatientStatus: String {
@@ -26,14 +43,12 @@ final class DoctorDashboardViewController: UIViewController {
     // MARK: - Data
 
     private var patients: [PatientOverviewItem] = [
-        PatientOverviewItem(name: "Sarah Wilson", condition: "ACL Recovery", status: .onTrack, lastActivity: "2h ago", isOnline: true),
-        PatientOverviewItem(name: "James Chen", condition: "Rotator Cuff", status: .needsAttention, lastActivity: "5h ago", isOnline: false),
-        PatientOverviewItem(name: "Maria Garcia", condition: "Lower Back Rehab", status: .onTrack, lastActivity: "1h ago", isOnline: true),
-        PatientOverviewItem(name: "David Johnson", condition: "Knee Replacement", status: .inactive, lastActivity: "2d ago", isOnline: false),
-        PatientOverviewItem(name: "Emily Brown", condition: "Ankle Sprain", status: .onTrack, lastActivity: "30m ago", isOnline: true),
+        PatientOverviewItem(id: "1", name: "Sarah Wilson", condition: "ACL Recovery", lastActivity: "2h ago", isOnline: true, completedWorkouts: 10, totalWorkouts: 10),
+        PatientOverviewItem(id: "2", name: "James Chen", condition: "Rotator Cuff", lastActivity: "5h ago", isOnline: false, completedWorkouts: 6, totalWorkouts: 10),
+        PatientOverviewItem(id: "3", name: "Maria Garcia", condition: "Lower Back Rehab", lastActivity: "1h ago", isOnline: true, completedWorkouts: 8, totalWorkouts: 8),
+        PatientOverviewItem(id: "4", name: "David Johnson", condition: "Knee Replacement", lastActivity: "2d ago", isOnline: false, completedWorkouts: 2, totalWorkouts: 10),
+        PatientOverviewItem(id: "5", name: "Emily Brown", condition: "Ankle Sprain", lastActivity: "30m ago", isOnline: true, completedWorkouts: 5, totalWorkouts: 5),
     ]
-
-    private var filteredPatients: [PatientOverviewItem] = []
 
     // MARK: - UI
 
@@ -78,24 +93,7 @@ final class DoctorDashboardViewController: UIViewController {
         return v
     }()
 
-    private let searchField: UITextField = {
-        let tf = UITextField()
-        tf.placeholder = NSLocalizedString("doctor_search_placeholder", comment: "")
-        tf.font = DesignTokens.Typography.inter(DesignTokens.Typography.subheadline)
-        tf.backgroundColor = DesignTokens.Colors.backgroundLight
-        tf.layer.cornerRadius = DesignTokens.Radius.xl
-        tf.leftView = {
-            let iv = UIImageView(image: UIImage(systemName: "magnifyingglass"))
-            iv.tintColor = DesignTokens.Colors.textSub
-            let container = UIView(frame: CGRect(x: 0, y: 0, width: 40, height: 20))
-            iv.frame = CGRect(x: 12, y: 0, width: 20, height: 20)
-            container.addSubview(iv)
-            return container
-        }()
-        tf.leftViewMode = .always
-        tf.translatesAutoresizingMaskIntoConstraints = false
-        return tf
-    }()
+
 
     private let sectionHeader: UIView = {
         let v = UIView()
@@ -148,7 +146,6 @@ final class DoctorDashboardViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        filteredPatients = patients
         setupUI()
         setupActions()
     }
@@ -160,7 +157,7 @@ final class DoctorDashboardViewController: UIViewController {
         navigationController?.setNavigationBarHidden(true, animated: false)
 
         // Header
-        headerView.addSubviews(welcomeLabel, doctorNameLabel, notificationButton, notificationDot, searchField)
+        headerView.addSubviews(welcomeLabel, doctorNameLabel, notificationButton, notificationDot)
         sectionHeader.addSubviews(sectionTitle, viewAllButton)
 
         NSLayoutConstraint.activate([
@@ -180,11 +177,7 @@ final class DoctorDashboardViewController: UIViewController {
             notificationDot.widthAnchor.constraint(equalToConstant: 10),
             notificationDot.heightAnchor.constraint(equalToConstant: 10),
 
-            searchField.topAnchor.constraint(equalTo: doctorNameLabel.bottomAnchor, constant: DesignTokens.Spacing.base),
-            searchField.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 20),
-            searchField.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -20),
-            searchField.heightAnchor.constraint(equalToConstant: 48),
-            searchField.bottomAnchor.constraint(equalTo: headerView.bottomAnchor, constant: -16),
+            doctorNameLabel.bottomAnchor.constraint(equalTo: headerView.bottomAnchor, constant: -16),
 
             sectionTitle.leadingAnchor.constraint(equalTo: sectionHeader.leadingAnchor, constant: 16),
             sectionTitle.centerYAnchor.constraint(equalTo: sectionHeader.centerYAnchor),
@@ -222,7 +215,6 @@ final class DoctorDashboardViewController: UIViewController {
 
     private func setupActions() {
         addPatientFAB.addTarget(self, action: #selector(addPatientTapped), for: .touchUpInside)
-        searchField.addTarget(self, action: #selector(searchChanged), for: .editingChanged)
     }
 
     // MARK: - Actions
@@ -232,28 +224,19 @@ final class DoctorDashboardViewController: UIViewController {
         navigationController?.pushViewController(addVC, animated: true)
     }
 
-    @objc private func searchChanged() {
-        let query = searchField.text?.lowercased() ?? ""
-        if query.isEmpty {
-            filteredPatients = patients
-        } else {
-            filteredPatients = patients.filter { $0.name.lowercased().contains(query) || $0.condition.lowercased().contains(query) }
-        }
-        tableView.reloadData()
-    }
 }
 
 // MARK: - Table View
 
 extension DoctorDashboardViewController: UITableViewDataSource, UITableViewDelegate {
 
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { filteredPatients.count }
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { patients.count }
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat { 88 }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: PatientOverviewCell.reuseID, for: indexPath) as! PatientOverviewCell
-        cell.configure(with: filteredPatients[indexPath.row])
+        cell.configure(with: patients[indexPath.row])
         return cell
     }
 
@@ -297,16 +280,6 @@ final class PatientOverviewCell: UITableViewCell {
         l.textAlignment = .center
         l.translatesAutoresizingMaskIntoConstraints = false
         return l
-    }()
-
-    private let onlineIndicator: UIView = {
-        let v = UIView()
-        v.backgroundColor = .systemGreen
-        v.layer.cornerRadius = 6
-        v.layer.borderWidth = 2
-        v.layer.borderColor = UIColor.white.cgColor
-        v.translatesAutoresizingMaskIntoConstraints = false
-        return v
     }()
 
     private let nameLabel: UILabel = {
@@ -354,7 +327,7 @@ final class PatientOverviewCell: UITableViewCell {
         backgroundColor = .clear
         selectionStyle = .none
         contentView.addSubview(card)
-        card.addSubviews(avatarView, nameLabel, conditionLabel, statusBadge, activityLabel, onlineIndicator)
+        card.addSubviews(avatarView, nameLabel, conditionLabel, statusBadge, activityLabel)
         avatarView.addSubview(avatarLabel)
 
         NSLayoutConstraint.activate([
@@ -370,11 +343,6 @@ final class PatientOverviewCell: UITableViewCell {
 
             avatarLabel.centerXAnchor.constraint(equalTo: avatarView.centerXAnchor),
             avatarLabel.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
-
-            onlineIndicator.bottomAnchor.constraint(equalTo: avatarView.bottomAnchor),
-            onlineIndicator.trailingAnchor.constraint(equalTo: avatarView.trailingAnchor),
-            onlineIndicator.widthAnchor.constraint(equalToConstant: 12),
-            onlineIndicator.heightAnchor.constraint(equalToConstant: 12),
 
             nameLabel.topAnchor.constraint(equalTo: avatarView.topAnchor, constant: 4),
             nameLabel.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 16),
@@ -396,7 +364,6 @@ final class PatientOverviewCell: UITableViewCell {
         nameLabel.text = patient.name
         conditionLabel.text = patient.condition
         activityLabel.text = patient.lastActivity
-        onlineIndicator.isHidden = !patient.isOnline
 
         // Avatar initials
         let initials = patient.name.split(separator: " ").map { String($0.prefix(1)) }.joined()

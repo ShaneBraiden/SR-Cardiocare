@@ -240,7 +240,7 @@ final class LoginViewController: UIViewController {
             // Check if onboarding is completed
             vc = PatientHomeViewController()
         case .admin:
-            vc = DoctorDashboardViewController() // TODO: Admin panel
+            vc = AdminDashboardViewController()
         }
         let nav = UINavigationController(rootViewController: vc)
         nav.modalPresentationStyle = .fullScreen

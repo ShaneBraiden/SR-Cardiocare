@@ -16,35 +16,35 @@ struct DesignTokens {
     // MARK: - Colors
 
     struct Colors {
-        // Primary Brand
-        static let primary = UIColor(hex: "#11C4D4")
-        static let primaryDark = UIColor(hex: "#0EA5B2")
-        static let primaryLight = UIColor(hex: "#B8EEF2")
+        // Primary Brand — Greyish teal/green
+        static let primary = UIColor(hex: "#5A9EA6")       // Desaturated teal
+        static let primaryDark = UIColor(hex: "#4A8A91")   // Darker greyish teal
+        static let primaryLight = UIColor(hex: "#C5DFE2") // Light greyish teal
 
-        // Backgrounds — adaptive
-        static let backgroundLight = UIColor { $0.userInterfaceStyle == .dark ? UIColor(hex: "#102022") : UIColor(hex: "#F6F8F8") }
-        static let backgroundDark = UIColor(hex: "#102022")
+        // Backgrounds — adaptive with grey undertones
+        static let backgroundLight = UIColor { $0.userInterfaceStyle == .dark ? UIColor(hex: "#1A1F21") : UIColor(hex: "#F3F5F5") }
+        static let backgroundDark = UIColor(hex: "#1A1F21")
 
-        // Surfaces — adaptive
-        static let surfaceLight = UIColor { $0.userInterfaceStyle == .dark ? UIColor(hex: "#1A2C2E") : UIColor(hex: "#FFFFFF") }
-        static let surfaceDark = UIColor(hex: "#1A2C2E")
+        // Surfaces — adaptive with grey undertones
+        static let surfaceLight = UIColor { $0.userInterfaceStyle == .dark ? UIColor(hex: "#252B2D") : UIColor(hex: "#FAFBFB") }
+        static let surfaceDark = UIColor(hex: "#252B2D")
 
         // Text — adaptive
-        static let textMain = UIColor { $0.userInterfaceStyle == .dark ? UIColor(hex: "#F1F5F9") : UIColor(hex: "#111718") }
-        static let textSub = UIColor { $0.userInterfaceStyle == .dark ? UIColor(hex: "#94A3B8") : UIColor(hex: "#637588") }
-        static let textSecondary = UIColor { $0.userInterfaceStyle == .dark ? UIColor(hex: "#94A3B8") : UIColor(hex: "#618689") }
+        static let textMain = UIColor { $0.userInterfaceStyle == .dark ? UIColor(hex: "#E8ECEE") : UIColor(hex: "#1A1F21") }
+        static let textSub = UIColor { $0.userInterfaceStyle == .dark ? UIColor(hex: "#8A9499") : UIColor(hex: "#5A6670") }
+        static let textSecondary = UIColor { $0.userInterfaceStyle == .dark ? UIColor(hex: "#8A9499") : UIColor(hex: "#5A7678") }
 
-        // Neutrals — adaptive
-        static let neutralLight = UIColor { $0.userInterfaceStyle == .dark ? UIColor(hex: "#334155") : UIColor(hex: "#E0E6E7") }
-        static let neutralGrey = UIColor { $0.userInterfaceStyle == .dark ? UIColor(hex: "#475569") : UIColor(hex: "#E2E8F0") }
-        static let neutralDark = UIColor(hex: "#94A3B8")
+        // Neutrals — adaptive with grey tones
+        static let neutralLight = UIColor { $0.userInterfaceStyle == .dark ? UIColor(hex: "#3A4245") : UIColor(hex: "#DDE2E3") }
+        static let neutralGrey = UIColor { $0.userInterfaceStyle == .dark ? UIColor(hex: "#4A5458") : UIColor(hex: "#D5DBDD") }
+        static let neutralDark = UIColor(hex: "#8A9499")
 
-        // Special — adaptive
-        static let bubbleGrey = UIColor { $0.userInterfaceStyle == .dark ? UIColor(hex: "#1A2C2E") : UIColor(hex: "#EEF2F3") }
-        static let chartTeal = UIColor(hex: "#11C4D4")
-        static let chartLightTeal = UIColor(hex: "#CCFBF1")
-        static let chartSecondaryTeal = UIColor(hex: "#7EE0E9")
-        static let chartGrey = UIColor(hex: "#CBD5E1")
+        // Special — adaptive with grey undertones
+        static let bubbleGrey = UIColor { $0.userInterfaceStyle == .dark ? UIColor(hex: "#252B2D") : UIColor(hex: "#E8ECED") }
+        static let chartTeal = UIColor(hex: "#5A9EA6")     // Matches primary
+        static let chartLightTeal = UIColor(hex: "#D5EAEC")
+        static let chartSecondaryTeal = UIColor(hex: "#8ABFC5")
+        static let chartGrey = UIColor(hex: "#C5CDD2")
 
         // Semantic
         static let error = UIColor(hex: "#EF4444")
