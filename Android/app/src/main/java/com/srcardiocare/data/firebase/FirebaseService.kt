@@ -280,6 +280,45 @@ object FirebaseService {
     }
 
     /**
+     * Assigns an exercise to a patient with prescription dates.
+     * Creates or updates the active plan with expiry information.
+     */
+    suspend fun assignExerciseToPatientWithPrescription(
+        patientId: String,
+        exerciseData: Map<String, Any>,
+        expiryDays: Int,
+        expiryDate: String
+    ) {
+        val doctorId = currentUID ?: throw Exception("Not authenticated")
+        val plans = fetchPlans(patientId)
+        val activePlan = plans.firstOrNull { (it.second["isActive"] as? Boolean) == true }
+
+        if (activePlan != null) {
+            // Update existing plan with exercise and prescription info
+            val planId = activePlan.first
+            db.collection("plans").document(planId).update(
+                mapOf(
+                    "exercises" to FieldValue.arrayUnion(exerciseData),
+                    "expiryDays" to expiryDays,
+                    "expiryDate" to expiryDate
+                )
+            ).await()
+        } else {
+            // Create new active plan with prescription info
+            val planData = hashMapOf<String, Any>(
+                "patientId" to patientId,
+                "doctorId" to doctorId,
+                "isActive" to true,
+                "exercises" to listOf(exerciseData),
+                "expiryDays" to expiryDays,
+                "expiryDate" to expiryDate,
+                "startDate" to java.time.LocalDate.now().toString()
+            )
+            createPlan(planData)
+        }
+    }
+
+    /**
      * Removes a specific exercise from a patient's active plan.
      */
     suspend fun removeExerciseFromPlan(

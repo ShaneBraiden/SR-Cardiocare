@@ -48,6 +48,13 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
     var isLoadingExercises by remember { mutableStateOf(false) }
     var assignMessage by remember { mutableStateOf<String?>(null) }
 
+    // Prescription dialog state
+    var showPrescriptionDialog by remember { mutableStateOf(false) }
+    var selectedExercise by remember { mutableStateOf<Pair<String, Map<String, Any?>>?>(null) }
+    var prescriptionDays by remember { mutableStateOf("7") }
+    var prescriptionMode by remember { mutableStateOf("days") } // "days" or "date"
+    var prescriptionEndDate by remember { mutableStateOf("") }
+
     // Admin doctor assignment state
     var currentUserRole by remember { mutableStateOf("") }
     var allDoctors by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) } // id to name
@@ -149,41 +156,19 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                             val name = data["name"] as? String ?: data["title"] as? String ?: "Unnamed Exercise"
                             val category = data["category"] as? String ?: ""
                             val difficulty = data["difficulty"] as? String ?: ""
-                            val videoUrl = data["videoUrl"] as? String
-                            val instructions = data["instructions"]
-                            val defaultSets = (data["sets"] as? Number)?.toInt() ?: 3
-                            val defaultReps = (data["reps"] as? Number)?.toInt() ?: 10
 
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(vertical = 4.dp)
                                     .clickable {
-                                        scope.launch {
-                                            try {
-                                                val exerciseData = mapOf<String, Any>(
-                                                    "exerciseId" to id,
-                                                    "name" to name,
-                                                    "category" to category,
-                                                    "difficulty" to difficulty,
-                                                    "customSets" to defaultSets,
-                                                    "customReps" to defaultReps,
-                                                    "videoUrl" to (videoUrl ?: ""),
-                                                    "instructions" to when (instructions) {
-                                                        is String -> instructions
-                                                        is List<*> -> instructions.joinToString("\n") { it?.toString().orEmpty() }
-                                                        else -> ""
-                                                    }
-                                                )
-                                                FirebaseService.assignExerciseToPatient(patientId, exerciseData)
-                                                showAssignDialog = false
-                                                assignMessage = "✅ \"$name\" assigned to $patientName"
-                                                // Refresh exercise list
-                                                loadPatientData()
-                                            } catch (e: Exception) {
-                                                assignMessage = "❌ Failed: ${e.message}"
-                                            }
-                                        }
+                                        // Show prescription dialog instead of assigning directly
+                                        selectedExercise = id to data
+                                        prescriptionDays = "7"
+                                        prescriptionEndDate = ""
+                                        prescriptionMode = "days"
+                                        showAssignDialog = false
+                                        showPrescriptionDialog = true
                                     },
                                 shape = RoundedCornerShape(DesignTokens.Radius.Base),
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
@@ -268,6 +253,190 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
             },
             dismissButton = {
                 TextButton(onClick = { showFeedbackDialog = false }, enabled = !isSendingFeedback) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Prescription Dialog
+    if (showPrescriptionDialog && selectedExercise != null) {
+        val (exId, exData) = selectedExercise!!
+        val exName = exData["name"] as? String ?: exData["title"] as? String ?: "Exercise"
+        val videoUrl = exData["videoUrl"] as? String
+        val instructions = exData["instructions"]
+        val defaultSets = (exData["sets"] as? Number)?.toInt() ?: 3
+        val defaultReps = (exData["reps"] as? Number)?.toInt() ?: 10
+        val category = exData["category"] as? String ?: ""
+        val difficulty = exData["difficulty"] as? String ?: ""
+
+        var isAssigning by remember { mutableStateOf(false) }
+
+        // Calculate end date based on mode
+        val calculatedEndDate = remember(prescriptionMode, prescriptionDays, prescriptionEndDate) {
+            when (prescriptionMode) {
+                "days" -> {
+                    val days = prescriptionDays.toIntOrNull() ?: 7
+                    java.time.LocalDate.now().plusDays(days.toLong()).toString()
+                }
+                else -> prescriptionEndDate.ifBlank { java.time.LocalDate.now().plusDays(7).toString() }
+            }
+        }
+
+        AlertDialog(
+            onDismissRequest = { if (!isAssigning) showPrescriptionDialog = false },
+            title = { Text("Prescribe Exercise", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    // Selected exercise info
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(DesignTokens.Radius.Base),
+                        colors = CardDefaults.cardColors(containerColor = DesignTokens.Colors.PrimaryLight.copy(alpha = 0.3f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(DesignTokens.Spacing.MD),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("🏋️", style = MaterialTheme.typography.titleLarge)
+                            Spacer(modifier = Modifier.width(DesignTokens.Spacing.SM))
+                            Column {
+                                Text(exName, fontWeight = FontWeight.SemiBold)
+                                if (category.isNotBlank()) {
+                                    Text(category, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(DesignTokens.Spacing.LG))
+
+                    Text("Prescription Duration", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelLarge)
+                    Spacer(modifier = Modifier.height(DesignTokens.Spacing.SM))
+
+                    // Toggle between days and specific date
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.SM)
+                    ) {
+                        FilterChip(
+                            selected = prescriptionMode == "days",
+                            onClick = { prescriptionMode = "days" },
+                            label = { Text("Number of Days") }
+                        )
+                        FilterChip(
+                            selected = prescriptionMode == "date",
+                            onClick = { prescriptionMode = "date" },
+                            label = { Text("End Date") }
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+
+                    if (prescriptionMode == "days") {
+                        OutlinedTextField(
+                            value = prescriptionDays,
+                            onValueChange = { if (it.all { c -> c.isDigit() } && it.length <= 3) prescriptionDays = it },
+                            label = { Text("Number of Days") },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(DesignTokens.Radius.Base),
+                            singleLine = true,
+                            trailingIcon = { Text("days", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        )
+                    } else {
+                        OutlinedTextField(
+                            value = prescriptionEndDate,
+                            onValueChange = { prescriptionEndDate = it },
+                            label = { Text("End Date (YYYY-MM-DD)") },
+                            placeholder = { Text("e.g., 2026-04-15") },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(DesignTokens.Radius.Base),
+                            singleLine = true
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+
+                    // Show calculated end date
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(DesignTokens.Radius.Base),
+                        colors = CardDefaults.cardColors(containerColor = DesignTokens.Colors.Success.copy(alpha = 0.1f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(DesignTokens.Spacing.MD),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("📅", style = MaterialTheme.typography.titleMedium)
+                            Spacer(modifier = Modifier.width(DesignTokens.Spacing.SM))
+                            Column {
+                                Text("Plan ends on", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(calculatedEndDate, fontWeight = FontWeight.Bold, color = DesignTokens.Colors.Success)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        isAssigning = true
+                        scope.launch {
+                            try {
+                                val exerciseData = mapOf<String, Any>(
+                                    "exerciseId" to exId,
+                                    "name" to exName,
+                                    "category" to category,
+                                    "difficulty" to difficulty,
+                                    "customSets" to defaultSets,
+                                    "customReps" to defaultReps,
+                                    "videoUrl" to (videoUrl ?: ""),
+                                    "instructions" to when (instructions) {
+                                        is String -> instructions
+                                        is List<*> -> instructions.joinToString("\n") { it?.toString().orEmpty() }
+                                        else -> ""
+                                    },
+                                    "assignedDate" to java.time.LocalDate.now().toString()
+                                )
+
+                                val expiryDays = if (prescriptionMode == "days") {
+                                    prescriptionDays.toIntOrNull() ?: 7
+                                } else {
+                                    // Calculate days from end date
+                                    try {
+                                        val endDate = java.time.LocalDate.parse(prescriptionEndDate)
+                                        java.time.temporal.ChronoUnit.DAYS.between(java.time.LocalDate.now(), endDate).toInt().coerceAtLeast(1)
+                                    } catch (_: Exception) { 7 }
+                                }
+
+                                FirebaseService.assignExerciseToPatientWithPrescription(
+                                    patientId = patientId,
+                                    exerciseData = exerciseData,
+                                    expiryDays = expiryDays,
+                                    expiryDate = calculatedEndDate
+                                )
+
+                                showPrescriptionDialog = false
+                                selectedExercise = null
+                                assignMessage = "✅ \"$exName\" prescribed to $patientName until $calculatedEndDate"
+                                loadPatientData()
+                            } catch (e: Exception) {
+                                assignMessage = "❌ Failed: ${e.message}"
+                            }
+                            isAssigning = false
+                        }
+                    },
+                    enabled = !isAssigning && (prescriptionMode == "days" && prescriptionDays.isNotBlank() || prescriptionMode == "date" && prescriptionEndDate.isNotBlank())
+                ) {
+                    if (isAssigning) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = DesignTokens.Colors.Primary, strokeWidth = 2.dp)
+                    } else {
+                        Text("Prescribe", color = DesignTokens.Colors.Primary)
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPrescriptionDialog = false; selectedExercise = null }, enabled = !isAssigning) {
                     Text("Cancel")
                 }
             }

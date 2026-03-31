@@ -46,9 +46,9 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-private enum class UserStatus { ON_TRACK, NEEDS_ATTENTION, INACTIVE }
+enum class UserStatus { ON_TRACK, NEEDS_ATTENTION, INACTIVE }
 
-private data class UserItem(
+data class UserItem(
     val id: String,
     val name: String,
     val subtitle: String,
@@ -82,7 +82,8 @@ fun DoctorDashboardScreen(
     onExerciseLibrary: () -> Unit,
     onSchedule: () -> Unit,
     onProfile: () -> Unit = {},
-    onFeedbacks: () -> Unit = {}
+    onFeedbacks: () -> Unit = {},
+    onPatientList: () -> Unit = {}
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var allUsers by remember { mutableStateOf<List<UserItem>>(emptyList()) }
@@ -284,24 +285,6 @@ fun DoctorDashboardScreen(
                     Icon(Icons.Default.Add, contentDescription = "Add Patient", tint = MaterialTheme.colorScheme.onPrimary)
                 }
             }
-        },
-        bottomBar = {
-            NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                NavigationBarItem(
-                    selected = true,
-                    onClick = {
-                        // Reload on tap
-                        isLoading = true
-                        reloadKey++
-                    },
-                    label = { Text("Patients") },
-                    icon = { Icon(Icons.Default.People, contentDescription = "Patients") }
-                )
-                NavigationBarItem(selected = false, onClick = onExerciseLibrary, label = { Text("Exercises") }, icon = { Icon(Icons.Default.FitnessCenter, contentDescription = "Exercises") })
-                NavigationBarItem(selected = false, onClick = onFeedbacks, label = { Text("Feedbacks") }, icon = { Icon(Icons.Default.PlayArrow, contentDescription = "Feedbacks") })
-                NavigationBarItem(selected = false, onClick = onSchedule, label = { Text("Schedule") }, icon = { Icon(Icons.Default.CalendarMonth, contentDescription = "Schedule") })
-                NavigationBarItem(selected = false, onClick = onProfile, label = { Text("Profile") }, icon = { Icon(Icons.Default.Person, contentDescription = "Profile") })
-            }
         }
     ) { padding ->
         PullToRefreshBox(
@@ -314,7 +297,7 @@ fun DoctorDashboardScreen(
         ) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 88.dp)
+                contentPadding = PaddingValues(bottom = DesignTokens.Spacing.XL)
             ) {
                 // Header
                 item {
@@ -389,34 +372,6 @@ fun DoctorDashboardScreen(
                     Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
                 }
 
-                // Section header
-                item {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = DesignTokens.Spacing.XL, vertical = DesignTokens.Spacing.SM),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            if (userRole == "admin") "All Users" else "Patient Overview",
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
-                        Text(
-                            "${filteredUsers.size} user${if (filteredUsers.size != 1) "s" else ""}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                // ── Skeleton Loading ────────────────────────────────────────
-                if (isLoading) {
-                    items(5) {
-                        SkeletonRow()
-                    }
-                }
-
                 // Error state
                 errorMessage?.let { msg ->
                     item {
@@ -436,51 +391,86 @@ fun DoctorDashboardScreen(
                     }
                 }
 
-                // Empty state
-                if (!isLoading && errorMessage == null && filteredUsers.isEmpty()) {
-                    item {
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = DesignTokens.Spacing.XL, vertical = DesignTokens.Spacing.SM),
-                            shape = RoundedCornerShape(DesignTokens.Radius.Card),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(DesignTokens.Spacing.XXXL),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Text("👥", style = MaterialTheme.typography.displaySmall)
-                                Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
-                                Text(
-                                    if (searchQuery.isBlank()) "No users yet" else "No users match \"$searchQuery\"",
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Spacer(modifier = Modifier.height(DesignTokens.Spacing.XS))
-                                Text(
-                                    if (searchQuery.isBlank()) "Tap + to add your first patient" else "Try a different search term",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
+                // Dashboard Cards section
+                item {
+                    Spacer(modifier = Modifier.height(DesignTokens.Spacing.SM))
+                    Text(
+                        "Dashboard",
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier.padding(horizontal = DesignTokens.Spacing.XL, vertical = DesignTokens.Spacing.SM)
+                    )
                 }
 
-                // User rows
-                if (!isLoading) {
-                    items(filteredUsers) { user ->
-                        UserRow(user = user, isAdmin = userRole == "admin", onClick = {
-                            if (user.role == "patient") {
-                                onPatientTap(user.id)
-                            } else if (user.role == "doctor" && userRole == "admin") {
-                                onDoctorTap(user.id)
-                            }
-                        })
+                // Navigation Cards Grid
+                item {
+                    // Row 1: Patients/Users + Exercises
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = DesignTokens.Spacing.XL),
+                        horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.MD)
+                    ) {
+                        DashboardCard(
+                            modifier = Modifier.weight(1f),
+                            icon = Icons.Default.People,
+                            title = if (userRole == "admin") "Users" else "Patients",
+                            subtitle = if (userRole == "admin") "${allUsers.size} total users" else "${patientCount} patients",
+                            badgeCount = onlineCount,
+                            badgeLabel = "online",
+                            onClick = onPatientList
+                        )
+                        DashboardCard(
+                            modifier = Modifier.weight(1f),
+                            icon = Icons.Default.FitnessCenter,
+                            title = "Exercises",
+                            subtitle = "Exercise library",
+                            onClick = onExerciseLibrary
+                        )
                     }
+                    Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+
+                    // Row 2: Feedbacks + Schedule
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = DesignTokens.Spacing.XL),
+                        horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.MD)
+                    ) {
+                        DashboardCard(
+                            modifier = Modifier.weight(1f),
+                            icon = Icons.Default.PlayArrow,
+                            title = "Feedbacks",
+                            subtitle = "Patient responses",
+                            onClick = onFeedbacks
+                        )
+                        DashboardCard(
+                            modifier = Modifier.weight(1f),
+                            icon = Icons.Default.CalendarMonth,
+                            title = "Schedule",
+                            subtitle = "Appointments",
+                            onClick = onSchedule
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+
+                    // Row 3: Profile
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = DesignTokens.Spacing.XL),
+                        horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.MD)
+                    ) {
+                        DashboardCard(
+                            modifier = Modifier.weight(1f),
+                            icon = Icons.Default.Person,
+                            title = "Profile",
+                            subtitle = "Your account",
+                            onClick = onProfile
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                    Spacer(modifier = Modifier.height(DesignTokens.Spacing.XL))
                 }
             }
         }
@@ -731,6 +721,75 @@ private fun UserRow(user: UserItem, isAdmin: Boolean, onClick: () -> Unit) {
                         .padding(horizontal = 10.dp, vertical = 4.dp)
                 ) {
                     Text(statusText, style = MaterialTheme.typography.labelSmall, color = statusColor, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DashboardCard(
+    modifier: Modifier = Modifier,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String,
+    badgeCount: Int? = null,
+    badgeLabel: String? = null,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = modifier
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(DesignTokens.Radius.LG),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(DesignTokens.Spacing.LG),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(CircleShape)
+                    .background(DesignTokens.Colors.Primary.copy(alpha = 0.1f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = title,
+                    tint = DesignTokens.Colors.Primary,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+            Spacer(modifier = Modifier.height(DesignTokens.Spacing.SM))
+            Text(
+                text = title,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.titleMedium
+            )
+            Text(
+                text = subtitle,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall
+            )
+            if (badgeCount != null && badgeCount > 0 && badgeLabel != null) {
+                Spacer(modifier = Modifier.height(DesignTokens.Spacing.XS))
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(DesignTokens.Radius.Full))
+                        .background(DesignTokens.Colors.Success.copy(alpha = 0.15f))
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "$badgeCount $badgeLabel",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = DesignTokens.Colors.Success,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             }
         }

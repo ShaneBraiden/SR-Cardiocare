@@ -22,6 +22,8 @@ import com.srcardiocare.ui.screens.video.VideoUploadScreen
 import com.srcardiocare.ui.screens.schedule.ScheduleScreen
 import com.srcardiocare.ui.screens.analytics.AnalyticsScreen
 import com.srcardiocare.ui.screens.doctor.DoctorProfileScreen
+import com.srcardiocare.ui.screens.doctor.PatientListScreen
+import com.srcardiocare.ui.screens.patient.ExerciseListScreen
 import com.srcardiocare.ui.screens.notifications.NotificationsScreen
 
 /**
@@ -63,6 +65,8 @@ sealed class Route(val path: String) {
     object DoctorProfile : Route("doctor/profile")
     object PatientProfileSelf : Route("patient/profile")
     object PatientChat : Route("patient/chat")
+    object PatientList : Route("doctor/patients")
+    object ExerciseList : Route("patient/exercises")
     object ChangePassword : Route("change-password")
     object PatientFeedbackChat : Route("doctor/patientChat/{patientId}") {
         fun createPath(patientId: String) = "doctor/patientChat/$patientId"
@@ -90,6 +94,17 @@ fun SRCardiocareNavGraph(
 
         composable(Route.PatientHome.path) {
             PatientHomeScreen(
+                onExerciseTap = { navController.navigate(Route.ExerciseList.path) },
+                onScheduleTap = { navController.navigate(Route.Schedule.path) },
+                onAnalyticsTap = { navController.navigate(Route.Analytics.path) },
+                onNotificationsTap = { navController.navigate(Route.Notifications.path) },
+                onChatTap = { navController.navigate(Route.PatientChat.path) },
+                onProfile = { navController.navigate(Route.PatientProfileSelf.path) }
+            )
+        }
+
+        composable(Route.ExerciseList.path) {
+            ExerciseListScreen(
                 onExerciseTap = { name, videoUrl, sets, reps, instructions, planId, totalCount, isLastExercise ->
                     navController.navigate(
                         Route.WorkoutPlayer.createPath(
@@ -104,11 +119,7 @@ fun SRCardiocareNavGraph(
                         )
                     )
                 },
-                onScheduleTap = { navController.navigate(Route.Schedule.path) },
-                onAnalyticsTap = { navController.navigate(Route.Analytics.path) },
-                onNotificationsTap = { navController.navigate(Route.Notifications.path) },
-                onChatTap = { navController.navigate(Route.PatientChat.path) },
-                onProfile = { navController.navigate(Route.PatientProfileSelf.path) }
+                onBack = { navController.popBackStack() }
             )
         }
 
@@ -169,7 +180,18 @@ fun SRCardiocareNavGraph(
                 onExerciseLibrary = { navController.navigate(Route.ExerciseLibrary.path) },
                 onSchedule = { navController.navigate(Route.Schedule.path) },
                 onProfile = { navController.navigate(Route.DoctorProfile.path) },
-                onFeedbacks = { navController.navigate(Route.FeedbackDashboard.path) }
+                onFeedbacks = { navController.navigate(Route.FeedbackDashboard.path) },
+                onPatientList = { navController.navigate(Route.PatientList.path) }
+            )
+        }
+
+        composable(Route.PatientList.path) {
+            PatientListScreen(
+                onPatientTap = { id -> navController.navigate("doctor/patient/$id") },
+                onDoctorTap = { id -> navController.navigate("admin/doctor/$id") },
+                onAddPatient = { navController.navigate(Route.AddPatient.path) },
+                onAddDoctor = { navController.navigate(Route.AddDoctor.path) },
+                onBack = { navController.popBackStack() }
             )
         }
 
