@@ -61,7 +61,8 @@ data class PlanExercise(
     val order: Int,
     val customSets: Int? = null,
     val customReps: Int? = null,
-    val notes: String? = null
+    val notes: String? = null,
+    val expiryDate: String? = null // ISO date string when this workout expires
 )
 
 data class WorkoutSession(

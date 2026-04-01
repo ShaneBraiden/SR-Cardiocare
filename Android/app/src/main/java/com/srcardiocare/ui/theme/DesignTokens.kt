@@ -24,40 +24,40 @@ object DesignTokens {
     // ── Colors ──────────────────────────────────────────────────────────────
 
     object Colors {
-        // Primary Brand
-        val Primary = Color(0xFF11C4D4)
-        val PrimaryDark = Color(0xFF0EA5B2)
-        val PrimaryLight = Color(0xFFB8EEF2)
+        // Primary Brand - Greyish Teal palette (desaturated)
+        val Primary = Color(0xFF5A9EA6)       // Desaturated teal (greyish green)
+        val PrimaryDark = Color(0xFF4A8A91)   // Darker greyish teal
+        val PrimaryLight = Color(0xFFC5DFE2)  // Light greyish teal
 
-        // Backgrounds
-        val BackgroundLight = Color(0xFFF6F8F8)
-        val BackgroundDark = Color(0xFF102022)
+        // Backgrounds - with grey undertones
+        val BackgroundLight = Color(0xFFF4F6F7)  // Slightly greyer background
+        val BackgroundDark = Color(0xFF1A2426)   // Dark grey-teal
 
         // Surfaces
-        val SurfaceLight = Color(0xFFFFFFFF)
-        val SurfaceDark = Color(0xFF1A2C2E)
+        val SurfaceLight = Color(0xFFFAFBFB)     // Off-white with grey tint
+        val SurfaceDark = Color(0xFF252F31)      // Dark surface with teal undertone
 
         // Text
-        val TextMain = Color(0xFF111718)
-        val TextSub = Color(0xFF637588)
-        val TextSecondary = Color(0xFF618689)
+        val TextMain = Color(0xFF2D3738)         // Softer dark for text
+        val TextSub = Color(0xFF6B7D80)          // Muted grey-teal
+        val TextSecondary = Color(0xFF7A9295)    // Secondary text
 
-        // Neutrals
-        val NeutralLight = Color(0xFFE0E6E7)
-        val NeutralGrey = Color(0xFFE2E8F0)
-        val NeutralDark = Color(0xFF94A3B8)
+        // Neutrals - greyer
+        val NeutralLight = Color(0xFFE3E7E8)
+        val NeutralGrey = Color(0xFFD8DFE0)
+        val NeutralDark = Color(0xFF8A9A9C)
 
-        // Special
-        val BubbleGrey = Color(0xFFEEF2F3)
-        val ChartTeal = Color(0xFF11C4D4)
-        val ChartLightTeal = Color(0xFFCCFBF1)
-        val ChartSecondaryTeal = Color(0xFF7EE0E9)
-        val ChartGrey = Color(0xFFCBD5E1)
+        // Special - chart colors updated
+        val BubbleGrey = Color(0xFFECF0F1)
+        val ChartTeal = Color(0xFF5A9EA6)        // Match primary
+        val ChartLightTeal = Color(0xFFD4E8EA)   // Lighter variant
+        val ChartSecondaryTeal = Color(0xFF8BBDC3)
+        val ChartGrey = Color(0xFFC4CDD0)
 
-        // Semantic
-        val Error = Color(0xFFEF4444)
-        val Success = Color(0xFF10B981)
-        val Warning = Color(0xFFF59E0B)
+        // Semantic - slightly desaturated
+        val Error = Color(0xFFD95959)
+        val Success = Color(0xFF4DA889)
+        val Warning = Color(0xFFD9A14A)
 
         // Slate scale (from Tailwind — used in Stitch screens)
         val Slate100 = Color(0xFFF1F5F9)
@@ -71,9 +71,9 @@ object DesignTokens {
         val Slate900 = Color(0xFF0F172A)
 
         // Primary with alpha variants
-        val PrimaryAlpha10 = Color(0x1A11C4D4)
-        val PrimaryAlpha20 = Color(0x3311C4D4)
-        val PrimaryAlpha30 = Color(0x4D11C4D4)
+        val PrimaryAlpha10 = Color(0x1A5A9EA6)
+        val PrimaryAlpha20 = Color(0x335A9EA6)
+        val PrimaryAlpha30 = Color(0x4D5A9EA6)
     }
 
     // ── Typography ──────────────────────────────────────────────────────────

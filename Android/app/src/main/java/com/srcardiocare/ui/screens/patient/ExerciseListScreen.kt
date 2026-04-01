@@ -40,7 +40,8 @@ private data class ExItem(
     val videoUrl: String?,
     val instructions: String?,
     val statusLabel: String? = null,
-    val assignedDate: String? = null
+    val assignedDate: String? = null,
+    val expiryDate: String? = null // Individual workout expiry
 )
 
 private data class ExerciseGroup(
@@ -195,17 +196,41 @@ fun ExerciseListScreen(
                     }
                     val dateKey = assignedDate?.format(dateFormatter) ?: "Assigned Exercises"
 
+                    // Check individual exercise expiry date
+                    val expiryDateRaw = exMap["expiryDate"]
+                    val exerciseExpiry: LocalDate? = when (expiryDateRaw) {
+                        is String -> try { LocalDate.parse(expiryDateRaw) } catch (_: Exception) { null }
+                        is com.google.firebase.Timestamp -> expiryDateRaw.toDate().toInstant()
+                            .atZone(ZoneId.systemDefault()).toLocalDate()
+                        else -> null
+                    }
+                    val isExerciseExpired = exerciseExpiry != null && today.isAfter(exerciseExpiry)
+                    
+                    // Format expiry text for display
+                    val exerciseExpiryText = if (exerciseExpiry != null) {
+                        val daysLeft = java.time.temporal.ChronoUnit.DAYS.between(today, exerciseExpiry).toInt()
+                        when {
+                            daysLeft < 0 -> "Expired"
+                            daysLeft == 0 -> "Expires today"
+                            daysLeft == 1 -> "Expires tomorrow"
+                            daysLeft <= 7 -> "Expires in $daysLeft days"
+                            else -> "Expires ${exerciseExpiry.format(dateFormatter)}"
+                        }
+                    } else null
+
                     val status = when {
-                        isExpired -> ExStatus.EXPIRED
+                        isExerciseExpired -> ExStatus.EXPIRED // Individual exercise expired
+                        isExpired -> ExStatus.EXPIRED // Plan expired
                         dailyLimitReached && index >= completedCount -> ExStatus.DAILY_LIMIT
                         index < completedCount -> ExStatus.COMPLETED
                         index == completedCount -> ExStatus.ACTIVE
                         else -> ExStatus.PENDING
                     }
 
-                    val statusLabel = when (status) {
-                        ExStatus.EXPIRED -> "Expired"
-                        ExStatus.DAILY_LIMIT -> "Daily limit reached"
+                    val statusLabel = when {
+                        isExerciseExpired -> "This workout has expired"
+                        status == ExStatus.EXPIRED -> "Plan expired"
+                        status == ExStatus.DAILY_LIMIT -> "Daily limit reached"
                         else -> null
                     }
 
@@ -218,7 +243,8 @@ fun ExerciseListScreen(
                         videoUrl = videoUrl,
                         instructions = instructions,
                         statusLabel = statusLabel,
-                        assignedDate = dateKey
+                        assignedDate = dateKey,
+                        expiryDate = exerciseExpiryText
                     )
                 }.forEach { item ->
                     val dateKey = item.assignedDate ?: "Assigned Exercises"
@@ -476,6 +502,22 @@ private fun ExerciseRow(item: ExItem, sessionLocksEnabled: Boolean, onClick: () 
                     textDecoration = if (item.status == ExStatus.COMPLETED) TextDecoration.LineThrough else TextDecoration.None
                 )
                 Text(item.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                
+                // Show expiry date if available
+                item.expiryDate?.let { expiry ->
+                    val expiryColor = when {
+                        expiry.contains("Expired") -> DesignTokens.Colors.Error
+                        expiry.contains("today") || expiry.contains("tomorrow") -> DesignTokens.Colors.Warning
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                    Text(
+                        expiry,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = expiryColor,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                
                 item.statusLabel?.let { label ->
                     Text(
                         label,

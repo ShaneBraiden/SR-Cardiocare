@@ -3,6 +3,7 @@ package com.srcardiocare
 import android.app.Application
 import com.google.firebase.FirebaseApp
 import com.srcardiocare.core.auth.AuthManager
+import com.srcardiocare.core.NotificationService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -45,6 +46,10 @@ class SRCardiocareApp : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        
+        // Initialize notification channels
+        NotificationService.createChannels(this)
+        
         // Kick off async init immediately — do NOT block here.
         // authDeferred is already started by the field initialiser above.
     }

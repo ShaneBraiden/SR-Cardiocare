@@ -1,4 +1,4 @@
-// WorkoutPlayerScreen.kt — Video player with loading state, fullscreen, and exercise controls
+// WorkoutPlayerScreen.kt — Video player with aspect ratio detection, fullscreen, and exercise controls
 package com.srcardiocare.ui.screens.workout
 
 import android.annotation.SuppressLint
@@ -27,10 +27,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
+
+enum class VideoOrientation {
+    LANDSCAPE,  // Width > Height (16:9, etc.)
+    PORTRAIT,   // Height > Width (9:16, etc.)
+    SQUARE      // Width == Height (1:1)
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,6 +67,9 @@ fun WorkoutPlayerScreen(
     var isVideoLoading by remember { mutableStateOf(true) }
     // Fullscreen state
     var isFullscreen by remember { mutableStateOf(false) }
+    // Video orientation detection
+    var videoOrientation by remember { mutableStateOf(VideoOrientation.LANDSCAPE) }
+    var videoAspectRatio by remember { mutableFloatStateOf(16f / 9f) }
 
     val exoPlayer = remember(videoUrl) {
         if (videoUrl.isNullOrBlank() || isYoutube) {
@@ -76,6 +86,17 @@ fun WorkoutPlayerScreen(
                             isVideoLoading = false
                         }
                     }
+                    
+                    override fun onVideoSizeChanged(videoSize: VideoSize) {
+                        if (videoSize.width > 0 && videoSize.height > 0) {
+                            videoAspectRatio = videoSize.width.toFloat() / videoSize.height.toFloat()
+                            videoOrientation = when {
+                                videoSize.width > videoSize.height -> VideoOrientation.LANDSCAPE
+                                videoSize.height > videoSize.width -> VideoOrientation.PORTRAIT
+                                else -> VideoOrientation.SQUARE
+                            }
+                        }
+                    }
                 })
             }
         }
@@ -85,11 +106,24 @@ fun WorkoutPlayerScreen(
         onDispose { exoPlayer?.release() }
     }
 
-    // Handle fullscreen orientation
+    // Handle fullscreen orientation - only rotate for landscape videos
     val activity = context as? Activity
-    DisposableEffect(isFullscreen) {
+    DisposableEffect(isFullscreen, videoOrientation) {
         if (isFullscreen) {
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            // Only force landscape if the video is landscape oriented
+            when (videoOrientation) {
+                VideoOrientation.LANDSCAPE -> {
+                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                }
+                VideoOrientation.PORTRAIT -> {
+                    // Keep portrait for portrait videos
+                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                }
+                VideoOrientation.SQUARE -> {
+                    // Let user decide for square videos
+                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                }
+            }
         } else {
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
@@ -165,11 +199,17 @@ fun WorkoutPlayerScreen(
                 .padding(padding)
                 .fillMaxSize()
         ) {
-            // Video area with loading overlay and fullscreen button
+            // Video area with dynamic aspect ratio and fullscreen button
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(16f / 9f)
+                    .then(
+                        when (videoOrientation) {
+                            VideoOrientation.LANDSCAPE -> Modifier.aspectRatio(videoAspectRatio.coerceIn(1.2f, 2.5f))
+                            VideoOrientation.PORTRAIT -> Modifier.aspectRatio(videoAspectRatio.coerceIn(0.4f, 0.9f))
+                            VideoOrientation.SQUARE -> Modifier.aspectRatio(1f)
+                        }
+                    )
             ) {
                 if (videoUrl.isNullOrBlank()) {
                     AndroidView(
@@ -222,8 +262,8 @@ fun WorkoutPlayerScreen(
                     }
                 }
 
-                // Fullscreen button
-                if (!videoUrl.isNullOrBlank()) {
+                // Fullscreen button - only show for landscape videos or always for non-portrait
+                if (!videoUrl.isNullOrBlank() && videoOrientation != VideoOrientation.PORTRAIT) {
                     IconButton(
                         onClick = { isFullscreen = true },
                         modifier = Modifier

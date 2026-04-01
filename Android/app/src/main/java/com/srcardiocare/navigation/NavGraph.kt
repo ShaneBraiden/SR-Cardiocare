@@ -24,6 +24,7 @@ import com.srcardiocare.ui.screens.patient.PatientProfileSelfScreen
 import com.srcardiocare.ui.screens.workout.WorkoutPlayerScreen
 import com.srcardiocare.ui.screens.feedback.PostWorkoutFeedbackScreen
 import com.srcardiocare.ui.screens.doctor.DoctorDashboardScreen
+import com.srcardiocare.ui.screens.doctor.AdminDashboardScreen
 import com.srcardiocare.ui.screens.doctor.AddPatientScreen
 import com.srcardiocare.ui.screens.doctor.PatientProfileScreen
 import com.srcardiocare.ui.screens.exercises.ExerciseLibraryScreen
@@ -61,6 +62,7 @@ sealed class Route(val path: String) {
     }
     object PostWorkoutFeedback : Route("workout/feedback")
     object DoctorDashboard : Route("doctor/dashboard")
+    object AdminDashboard : Route("admin/dashboard")
     object FeedbackDashboard : Route("doctor/feedback")
     object AddPatient : Route("doctor/add-patient")
     object AddDoctor : Route("doctor/add-doctor")
@@ -94,8 +96,9 @@ fun SRCardiocareNavGraph(
             LoginScreen(
                 onLoginSuccess = { role ->
                     val dest = when (role) {
-                        "DOCTOR", "ADMIN" -> Route.DoctorDashboard.path
-                        else -> Route.PatientHome.path // Skip onboarding, go directly to home
+                        "ADMIN" -> Route.AdminDashboard.path
+                        "DOCTOR" -> Route.DoctorDashboard.path
+                        else -> Route.PatientHome.path
                     }
                     navController.navigate(dest) { popUpTo(Route.Login.path) { inclusive = true } }
                 },
@@ -193,6 +196,18 @@ fun SRCardiocareNavGraph(
                 onProfile = { navController.navigate(Route.DoctorProfile.path) },
                 onFeedbacks = { navController.navigate(Route.FeedbackDashboard.path) },
                 onPatientList = { navController.navigate(Route.PatientList.path) }
+            )
+        }
+
+        composable(Route.AdminDashboard.path) {
+            AdminDashboardScreen(
+                onDoctorTap = { id -> navController.navigate("admin/doctor/$id") },
+                onPatientTap = { id -> navController.navigate("doctor/patient/$id") },
+                onAddDoctor = { navController.navigate(Route.AddDoctor.path) },
+                onAddPatient = { navController.navigate(Route.AddPatient.path) },
+                onUserList = { navController.navigate(Route.PatientList.path) },
+                onSettings = { },
+                onProfile = { navController.navigate(Route.DoctorProfile.path) }
             )
         }
 

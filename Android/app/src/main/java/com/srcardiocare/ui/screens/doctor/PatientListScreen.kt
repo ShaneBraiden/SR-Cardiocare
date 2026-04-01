@@ -61,6 +61,30 @@ fun PatientListScreen(
                 FirebaseService.fetchPatients(uid)
             }
 
+            // Compute status based on workout completion for patients
+            val patientStatusMap = mutableMapOf<String, UserStatus>()
+            users.filter { (_, data) ->
+                ((data["role"] as? String) ?: "patient").lowercase() == "patient"
+            }.forEach { (patientId, _) ->
+                try {
+                    val workouts = FirebaseService.fetchWorkouts(patientId)
+                    val totalWorkouts = workouts.size
+                    val completedWorkouts = workouts.count { (_, workoutData) ->
+                        val completedAt = workoutData["completedAt"]
+                        completedAt is com.google.firebase.Timestamp || completedAt is String
+                    }
+                    
+                    patientStatusMap[patientId] = when {
+                        totalWorkouts == 0 -> UserStatus.INACTIVE
+                        completedWorkouts == totalWorkouts -> UserStatus.ON_TRACK  // 100%
+                        completedWorkouts >= totalWorkouts / 2 -> UserStatus.NEEDS_ATTENTION  // 50-99%
+                        else -> UserStatus.INACTIVE  // <50%
+                    }
+                } catch (_: Exception) {
+                    patientStatusMap[patientId] = UserStatus.INACTIVE
+                }
+            }
+
             allUsers = users.mapNotNull { (id, data) ->
                 val role = (data["role"] as? String)?.lowercase() ?: "patient"
                 if (userRole != "admin" && role != "patient") return@mapNotNull null
@@ -82,12 +106,10 @@ fun PatientListScreen(
                     }
                 } catch (_: Exception) { false }
 
+                // Use computed status for patients, default to ON_TRACK for others
                 val status = when (role) {
                     "admin", "doctor" -> UserStatus.ON_TRACK
-                    else -> {
-                        val injuries = data["injuries"] as? List<*>
-                        if (injuries.isNullOrEmpty()) UserStatus.INACTIVE else UserStatus.ON_TRACK
-                    }
+                    else -> patientStatusMap[id] ?: UserStatus.INACTIVE
                 }
 
                 val subtitle = when (role) {

@@ -11,6 +11,10 @@
     <!-- Push notifications (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Alarm scheduling for workout reminders -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
     <application
         android:name=".SRCardiocareApp"
         android:allowBackup="true"
@@ -30,6 +34,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Workout reminder broadcast receiver -->
+        <receiver
+            android:name=".core.WorkoutReminderReceiver"
+            android:exported="false" />
 
     </application>
 

@@ -1,7 +1,11 @@
-// AnalyticsScreen.kt — Patient progress with chart and stat cards
+// AnalyticsScreen.kt — Patient progress with donut chart and stat cards
 package com.srcardiocare.ui.screens.analytics
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -14,7 +18,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -24,9 +32,19 @@ import com.srcardiocare.ui.theme.DesignTokens
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import kotlin.math.PI
+import kotlin.math.atan2
+import kotlin.math.cos
 import kotlin.math.max
+import kotlin.math.sin
 
 private data class BarData(val day: String, val value: Float)
+
+data class DonutSegment(
+    val label: String,
+    val value: Int,
+    val color: Color
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -38,13 +56,29 @@ fun AnalyticsScreen(onBack: () -> Unit) {
     var complianceText by remember { mutableStateOf("--") }
     var streakText by remember { mutableStateOf("--") }
     var feedbacks by remember { mutableStateOf<List<Map<String, Any?>>>(emptyList()) }
+    
+    // Donut chart data
+    var completedWorkouts by remember { mutableIntStateOf(0) }
+    var inProgressWorkouts by remember { mutableIntStateOf(0) }
+    var missedWorkouts by remember { mutableIntStateOf(0) }
+    var totalWorkouts by remember { mutableIntStateOf(0) }
+    var selectedSegment by remember { mutableStateOf<DonutSegment?>(null) }
 
     LaunchedEffect(Unit) {
         try {
             val uid = FirebaseService.currentUID ?: return@LaunchedEffect
             val workouts = FirebaseService.fetchWorkouts(uid)
-            val totalWorkouts = workouts.size
-            val completedWorkouts = workouts.count { it.second["completedAt"] != null }
+            totalWorkouts = workouts.size
+            completedWorkouts = workouts.count { it.second["completedAt"] != null }
+            
+            // Calculate in-progress (started but not completed)
+            inProgressWorkouts = workouts.count { 
+                it.second["startedAt"] != null && it.second["completedAt"] == null 
+            }
+            
+            // Missed = total - completed - in progress
+            missedWorkouts = max(0, totalWorkouts - completedWorkouts - inProgressWorkouts)
+            
             if (totalWorkouts > 0) {
                 complianceText = "${(completedWorkouts * 100 / totalWorkouts)}%"
             }
@@ -92,6 +126,13 @@ fun AnalyticsScreen(onBack: () -> Unit) {
             
         } catch (_: Exception) { }
     }
+    
+    val segments = listOf(
+        DonutSegment("Completed", completedWorkouts, DesignTokens.Colors.Success),
+        DonutSegment("In Progress", inProgressWorkouts, DesignTokens.Colors.Warning),
+        DonutSegment("Missed", missedWorkouts, DesignTokens.Colors.Error)
+    ).filter { it.value > 0 }
+    
     Scaffold(
         topBar = {
             TopAppBar(
@@ -126,53 +167,45 @@ fun AnalyticsScreen(onBack: () -> Unit) {
 
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.XL))
 
-            // Chart card
+            // Donut Chart Card
             Card(
                 shape = RoundedCornerShape(DesignTokens.Radius.XL),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
             ) {
-                Column(modifier = Modifier.padding(DesignTokens.Spacing.XL)) {
-                    Text("Weekly Performance", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                Column(
+                    modifier = Modifier.padding(DesignTokens.Spacing.XL),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text("Workout Overview", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                     Spacer(modifier = Modifier.height(DesignTokens.Spacing.XL))
 
-                    // Bar chart
+                    // Donut chart with click interaction
+                    DonutChart(
+                        segments = segments,
+                        total = totalWorkouts,
+                        selectedSegment = selectedSegment,
+                        onSegmentClick = { segment ->
+                            selectedSegment = if (selectedSegment == segment) null else segment
+                        },
+                        modifier = Modifier.size(200.dp)
+                    )
+                    
+                    Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+                    
+                    // Legend
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(140.dp),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.Bottom
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
-                        weeklyBars.forEach { bar ->
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Bottom,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                // Dot
-                                Box(
-                                    modifier = Modifier
-                                        .size(10.dp)
-                                        .clip(CircleShape)
-                                        .background(DesignTokens.Colors.Primary)
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                // Bar
-                                val barHeight = if (bar.value > 0f) max(bar.value * 100f, 8f) else 4f
-                                Box(
-                                    modifier = Modifier
-                                        .width(12.dp)
-                                    .height(barHeight.dp)
-                                        .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
-                                        .background(DesignTokens.Colors.NeutralLight)
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    bar.day,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                        segments.forEach { segment ->
+                            LegendItem(
+                                color = segment.color,
+                                label = segment.label,
+                                isSelected = selectedSegment == segment,
+                                onClick = { 
+                                    selectedSegment = if (selectedSegment == segment) null else segment
+                                }
+                            )
                         }
                     }
                 }
@@ -187,6 +220,60 @@ fun AnalyticsScreen(onBack: () -> Unit) {
             ) {
                 StatCard(complianceText, "Compliance", DesignTokens.Colors.Primary, Modifier.weight(1f))
                 StatCard(streakText, "Workouts", DesignTokens.Colors.Warning, Modifier.weight(1f))
+            }
+
+            Spacer(modifier = Modifier.height(DesignTokens.Spacing.XL))
+
+            // Weekly Bar Chart card
+            Card(
+                shape = RoundedCornerShape(DesignTokens.Radius.XL),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(modifier = Modifier.padding(DesignTokens.Spacing.XL)) {
+                    Text("Weekly Performance", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                    Spacer(modifier = Modifier.height(DesignTokens.Spacing.XL))
+
+                    // Bar chart
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(100.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.Bottom
+                    ) {
+                        weeklyBars.forEach { bar ->
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Bottom,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                // Dot
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(DesignTokens.Colors.Primary)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                // Bar
+                                val barHeight = if (bar.value > 0f) max(bar.value * 60f, 6f) else 4f
+                                Box(
+                                    modifier = Modifier
+                                        .width(10.dp)
+                                        .height(barHeight.dp)
+                                        .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
+                                        .background(DesignTokens.Colors.NeutralLight)
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    bar.day,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.XL))
@@ -255,6 +342,139 @@ fun AnalyticsScreen(onBack: () -> Unit) {
 
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.XXL))
         }
+    }
+}
+
+@Composable
+private fun DonutChart(
+    segments: List<DonutSegment>,
+    total: Int,
+    selectedSegment: DonutSegment?,
+    onSegmentClick: (DonutSegment) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val strokeWidth = 28.dp
+    val animatedProgress by animateFloatAsState(
+        targetValue = 1f,
+        animationSpec = tween(durationMillis = 800),
+        label = "donut-animation"
+    )
+    
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .clickable {
+                    // Calculate which segment was clicked based on touch position
+                    // For simplicity, clicking the chart cycles through segments or deselects
+                }
+        ) {
+            val canvasSize = size.minDimension
+            val radius = (canvasSize - strokeWidth.toPx()) / 2
+            val center = Offset(size.width / 2, size.height / 2)
+            
+            val totalValue = segments.sumOf { it.value }.toFloat().coerceAtLeast(1f)
+            var startAngle = -90f // Start from top
+            
+            segments.forEach { segment ->
+                val sweepAngle = (segment.value / totalValue) * 360f * animatedProgress
+                val isSelected = selectedSegment == segment
+                val currentStrokeWidth = if (isSelected) strokeWidth.toPx() + 8 else strokeWidth.toPx()
+                
+                drawArc(
+                    color = if (isSelected) segment.color else segment.color.copy(alpha = 0.85f),
+                    startAngle = startAngle,
+                    sweepAngle = sweepAngle,
+                    useCenter = false,
+                    topLeft = Offset(
+                        center.x - radius,
+                        center.y - radius
+                    ),
+                    size = Size(radius * 2, radius * 2),
+                    style = Stroke(width = currentStrokeWidth, cap = StrokeCap.Round)
+                )
+                
+                startAngle += sweepAngle
+            }
+            
+            // Draw empty state if no segments
+            if (segments.isEmpty() || total == 0) {
+                drawArc(
+                    color = DesignTokens.Colors.NeutralLight,
+                    startAngle = 0f,
+                    sweepAngle = 360f,
+                    useCenter = false,
+                    topLeft = Offset(center.x - radius, center.y - radius),
+                    size = Size(radius * 2, radius * 2),
+                    style = Stroke(width = strokeWidth.toPx(), cap = StrokeCap.Round)
+                )
+            }
+        }
+        
+        // Center content
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            if (selectedSegment != null) {
+                // Show selected segment info
+                Text(
+                    "${selectedSegment.value}",
+                    style = MaterialTheme.typography.headlineLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = selectedSegment.color
+                )
+                Text(
+                    selectedSegment.label,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                // Show total
+                Text(
+                    "$total",
+                    style = MaterialTheme.typography.headlineLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    "Total",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LegendItem(
+    color: Color,
+    label: String,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(DesignTokens.Radius.SM))
+            .clickable(onClick = onClick)
+            .background(if (isSelected) color.copy(alpha = 0.1f) else Color.Transparent)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(10.dp)
+                .clip(CircleShape)
+                .background(color)
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (isSelected) color else MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+        )
     }
 }
 

@@ -383,6 +383,19 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                         isAssigning = true
                         scope.launch {
                             try {
+                                val expiryDays = if (prescriptionMode == "days") {
+                                    prescriptionDays.toIntOrNull() ?: 7
+                                } else {
+                                    // Calculate days from end date
+                                    try {
+                                        val endDate = java.time.LocalDate.parse(prescriptionEndDate)
+                                        java.time.temporal.ChronoUnit.DAYS.between(java.time.LocalDate.now(), endDate).toInt().coerceAtLeast(1)
+                                    } catch (_: Exception) { 7 }
+                                }
+                                
+                                // Individual exercise expiry date
+                                val exerciseExpiryDate = calculatedEndDate
+
                                 val exerciseData = mapOf<String, Any>(
                                     "exerciseId" to exId,
                                     "name" to exName,
@@ -396,18 +409,9 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                                         is List<*> -> instructions.joinToString("\n") { it?.toString().orEmpty() }
                                         else -> ""
                                     },
-                                    "assignedDate" to java.time.LocalDate.now().toString()
+                                    "assignedDate" to java.time.LocalDate.now().toString(),
+                                    "expiryDate" to exerciseExpiryDate // Individual workout expiry
                                 )
-
-                                val expiryDays = if (prescriptionMode == "days") {
-                                    prescriptionDays.toIntOrNull() ?: 7
-                                } else {
-                                    // Calculate days from end date
-                                    try {
-                                        val endDate = java.time.LocalDate.parse(prescriptionEndDate)
-                                        java.time.temporal.ChronoUnit.DAYS.between(java.time.LocalDate.now(), endDate).toInt().coerceAtLeast(1)
-                                    } catch (_: Exception) { 7 }
-                                }
 
                                 FirebaseService.assignExerciseToPatientWithPrescription(
                                     patientId = patientId,

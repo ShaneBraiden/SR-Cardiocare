@@ -30,6 +30,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -129,6 +130,41 @@ fun DoctorDashboardScreen(
                 FirebaseService.fetchPatients(uid)
             }
 
+            // First, compute workout stats for patients to determine status
+            val patientRefs = users.filter { (_, data) ->
+                ((data["role"] as? String) ?: "patient").lowercase() == "patient"
+            }
+
+            // Build a map of patient ID to completion percentage
+            val patientStatusMap = mutableMapOf<String, UserStatus>()
+            
+            coroutineScope {
+                patientRefs.map { (patientId, _) ->
+                    async {
+                        try {
+                            val workouts = FirebaseService.fetchWorkouts(patientId)
+                            val totalWorkouts = workouts.size
+                            val completedWorkouts = workouts.count { (_, workoutData) ->
+                                val completedAt = workoutData["completedAt"]
+                                completedAt is com.google.firebase.Timestamp || completedAt is String
+                            }
+                            
+                            val status = when {
+                                totalWorkouts == 0 -> UserStatus.INACTIVE
+                                completedWorkouts == totalWorkouts -> UserStatus.ON_TRACK  // 100%
+                                completedWorkouts >= totalWorkouts / 2 -> UserStatus.NEEDS_ATTENTION  // 50-99%
+                                else -> UserStatus.INACTIVE  // <50%
+                            }
+                            patientId to status
+                        } catch (_: Exception) {
+                            patientId to UserStatus.INACTIVE
+                        }
+                    }
+                }.awaitAll().forEach { (id, status) ->
+                    patientStatusMap[id] = status
+                }
+            }
+
             allUsers = users.map { (id, data) ->
                 val fName = data["firstName"] as? String ?: ""
                 val lName = data["lastName"]  as? String ?: ""
@@ -153,23 +189,27 @@ fun DoctorDashboardScreen(
                     else -> false
                 }
 
+                // Get computed status from map, default to ON_TRACK for non-patients
+                val status = patientStatusMap[id] ?: UserStatus.ON_TRACK
+
                 UserItem(
                     id       = id,
                     name     = "$fName $lName".trim().ifBlank { "Unknown" },
                     subtitle = subtitle,
                     role     = userRoleStr,
-                    status   = UserStatus.ON_TRACK,
+                    status   = status,
                     isOnline = isOnline,
                     initials = initials.ifBlank { "?" }
                 )
             }
 
-            val patientRefs = users.filter { (_, data) ->
+            // Build workout stats for chart (reuse existing pattern)
+            val patientWorkoutRefs = users.filter { (_, data) ->
                 ((data["role"] as? String) ?: "patient").lowercase() == "patient"
             }
 
             workoutStats = coroutineScope {
-                patientRefs.map { (patientId, data) ->
+                patientWorkoutRefs.map { (patientId, data) ->
                     async {
                         val fName = data["firstName"] as? String ?: ""
                         val lName = data["lastName"] as? String ?: ""
@@ -354,27 +394,6 @@ fun DoctorDashboardScreen(
                     }
                 }
 
-                // Search
-                item {
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = InputValidator.limitLength(it, InputValidator.MaxLength.TEXT_FIELD) },
-                        placeholder = { Text(if (userRole == "admin") "Search all users…" else "Search patients…") },
-                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = DesignTokens.Spacing.XL),
-                        shape = RoundedCornerShape(DesignTokens.Radius.Base),
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = DesignTokens.Colors.Primary,
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                            focusedContainerColor = MaterialTheme.colorScheme.surface
-                        )
-                    )
-                    Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
-                }
-
                 // Error state
                 errorMessage?.let { msg ->
                     item {
@@ -480,8 +499,8 @@ fun DoctorDashboardScreen(
     }
 }
 
-// ── Pie Chart Colors ─────────────────────────────────────────────────────────
-private val pieChartColors = listOf(
+// ── Donut Chart Colors ─────────────────────────────────────────────────────────
+private val donutChartColors = listOf(
     Color(0xFF4CAF50),  // Green
     Color(0xFF2196F3),  // Blue
     Color(0xFFFF9800),  // Orange
@@ -494,12 +513,14 @@ private val pieChartColors = listOf(
     Color(0xFFFF5722)   // Deep Orange
 )
 
-// ── Workout Pie Chart Card ───────────────────────────────────────────────────
+// ── Workout Donut Chart Card ───────────────────────────────────────────────────
 @Composable
 private fun WorkoutChartCard(
     stats: List<PatientWorkoutStat>,
     modifier: Modifier = Modifier
 ) {
+    var selectedIndex by remember { mutableIntStateOf(-1) }
+    
     Card(
         modifier = modifier,
         shape = RoundedCornerShape(DesignTokens.Radius.Card),
@@ -544,60 +565,112 @@ private fun WorkoutChartCard(
                     stats.map { 0f }
                 }
 
-                // Big Pie Chart
+                // Donut Chart with click interaction
                 Box(
                     modifier = Modifier
                         .size(240.dp)
                         .padding(8.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Canvas(modifier = Modifier.fillMaxSize()) {
+                    Canvas(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clickable {
+                                // Cycle through segments on click
+                                selectedIndex = if (selectedIndex >= stats.size - 1) -1 else selectedIndex + 1
+                            }
+                    ) {
                         var startAngle = -90f
-                        val strokeWidth = 0f
-                        val padding = 8.dp.toPx()
-                        val chartSize = Size(size.width - padding * 2, size.height - padding * 2)
+                        val strokeWidth = 40.dp.toPx()  // Donut thickness
+                        val padding = strokeWidth / 2 + 8.dp.toPx()
+                        val radius = (size.minDimension - padding * 2) / 2
+                        val center = Offset(size.width / 2, size.height / 2)
 
                         sweepAngles.forEachIndexed { index, sweepAngle ->
                             if (sweepAngle > 0f) {
+                                val isSelected = index == selectedIndex
+                                val currentStrokeWidth = if (isSelected) strokeWidth + 10 else strokeWidth
+                                
                                 drawArc(
-                                    color = pieChartColors[index % pieChartColors.size],
+                                    color = if (isSelected) 
+                                        donutChartColors[index % donutChartColors.size]
+                                    else 
+                                        donutChartColors[index % donutChartColors.size].copy(alpha = 0.85f),
                                     startAngle = startAngle,
                                     sweepAngle = sweepAngle,
-                                    useCenter = true,
-                                    topLeft = Offset(padding, padding),
-                                    size = chartSize
+                                    useCenter = false,
+                                    topLeft = Offset(center.x - radius, center.y - radius),
+                                    size = Size(radius * 2, radius * 2),
+                                    style = Stroke(width = currentStrokeWidth, cap = StrokeCap.Round)
                                 )
                                 startAngle += sweepAngle
                             }
                         }
                     }
 
-                    // Center label with total
+                    // Center label - show selected patient or total
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            "${totalSessions.toInt()}",
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            "Total Sessions",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        if (selectedIndex >= 0 && selectedIndex < stats.size) {
+                            val selected = stats[selectedIndex]
+                            Text(
+                                "${selected.completedSessions}",
+                                style = MaterialTheme.typography.headlineMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = donutChartColors[selectedIndex % donutChartColors.size]
+                            )
+                            Text(
+                                selected.patientName,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1
+                            )
+                        } else {
+                            Text(
+                                "${totalSessions.toInt()}",
+                                style = MaterialTheme.typography.headlineMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                "Total Sessions",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
 
+                Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+                
+                Text(
+                    "Tap chart to view details",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
                 Spacer(modifier = Modifier.height(DesignTokens.Spacing.LG))
 
-                // Legend
+                // Legend with clickable items
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     stats.forEachIndexed { index, stat ->
+                        val isSelected = index == selectedIndex
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(
+                                    if (isSelected) 
+                                        donutChartColors[index % donutChartColors.size].copy(alpha = 0.1f) 
+                                    else 
+                                        Color.Transparent
+                                )
+                                .clickable { 
+                                    selectedIndex = if (selectedIndex == index) -1 else index 
+                                }
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
@@ -606,20 +679,27 @@ private fun WorkoutChartCard(
                                     modifier = Modifier
                                         .size(12.dp)
                                         .clip(CircleShape)
-                                        .background(pieChartColors[index % pieChartColors.size])
+                                        .background(donutChartColors[index % donutChartColors.size])
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     stat.patientName,
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurface
+                                    color = if (isSelected) 
+                                        donutChartColors[index % donutChartColors.size]
+                                    else 
+                                        MaterialTheme.colorScheme.onSurface,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                                 )
                             }
                             Text(
                                 "${stat.completedSessions} sessions",
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = if (isSelected)
+                                    donutChartColors[index % donutChartColors.size]
+                                else
+                                    MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -742,18 +822,7 @@ private fun UserRow(user: UserItem, isAdmin: Boolean, onClick: () -> Unit) {
                 ) {
                     Text(user.initials, fontWeight = FontWeight.Bold, color = textColor)
                 }
-                if (user.isOnline) {
-                    Box(
-                        modifier = Modifier
-                            .size(14.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surface)
-                            .padding(2.dp)
-                            .clip(CircleShape)
-                            .background(DesignTokens.Colors.Success)
-                            .align(Alignment.BottomEnd)
-                    )
-                }
+                // Online indicator removed from dashboard - shown in patient list page instead
             }
 
             Spacer(modifier = Modifier.width(DesignTokens.Spacing.MD))
