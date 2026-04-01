@@ -74,6 +74,7 @@ fun PatientChatScreen(onBack: () -> Unit) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .imePadding()
         ) {
             LazyColumn(
                 modifier = Modifier

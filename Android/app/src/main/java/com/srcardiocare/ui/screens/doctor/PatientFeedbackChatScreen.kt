@@ -88,7 +88,10 @@ fun PatientFeedbackChatScreen(
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
-        Box(modifier = Modifier.padding(padding).fillMaxSize()) {
+        Box(modifier = Modifier
+            .padding(padding)
+            .fillMaxSize()
+            .imePadding()) {
             if (selectedTab == 0) {
                 FeedbackTabView(patientId = patientId, patientName = patientName)
             } else {
