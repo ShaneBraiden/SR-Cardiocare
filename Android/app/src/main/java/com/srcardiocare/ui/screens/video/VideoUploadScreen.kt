@@ -12,6 +12,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -107,12 +109,12 @@ fun VideoUploadScreen(onBack: () -> Unit, onUploaded: () -> Unit) {
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         if (selectedVideoUri != null) {
-                            Text("✅", style = MaterialTheme.typography.displaySmall)
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(48.dp), tint = DesignTokens.Colors.Success)
                             Spacer(modifier = Modifier.height(DesignTokens.Spacing.SM))
                             Text("Video selected", fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
                             Text(selectedFileName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else {
-                            Text("📁", style = MaterialTheme.typography.displaySmall)
+                            Icon(Icons.Default.Folder, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             Spacer(modifier = Modifier.height(DesignTokens.Spacing.SM))
                             Text("Tap to select video", fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
                             Text("MP4, MOV — Max 500 MB", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

@@ -9,6 +9,8 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.userProfileChangeRequest
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.storageMetadata
@@ -16,6 +18,9 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.Flow
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import java.util.UUID
 
 /**
@@ -277,6 +282,17 @@ object FirebaseService {
             )
             createPlan(planData)
         }
+
+        val exerciseName = exerciseData["name"]?.toString()
+            ?: exerciseData["title"]?.toString()
+            ?: "a new exercise"
+        createNotification(
+            userId = patientId,
+            title = "New exercise assigned",
+            body = "Your doctor assigned $exerciseName.",
+            type = "plan",
+            action = "assigned_exercise"
+        )
     }
 
     /**
@@ -316,6 +332,17 @@ object FirebaseService {
             )
             createPlan(planData)
         }
+
+        val exerciseName = exerciseData["name"]?.toString()
+            ?: exerciseData["title"]?.toString()
+            ?: "a new exercise"
+        createNotification(
+            userId = patientId,
+            title = "Workout plan updated",
+            body = "$exerciseName was prescribed until $expiryDate.",
+            type = "plan",
+            action = "prescription_updated"
+        )
     }
 
     /**
@@ -350,6 +377,14 @@ object FirebaseService {
             "createdAt" to FieldValue.serverTimestamp()
         )
         ref.set(data).await()
+
+        createNotification(
+            userId = patientId,
+            title = "New doctor feedback",
+            body = message.take(120),
+            type = "feedback",
+            action = "feedback_received"
+        )
     }
 
     // ── Workouts ────────────────────────────────────────────────────────
@@ -492,10 +527,35 @@ object FirebaseService {
     suspend fun fetchNotifications(userId: String): List<Pair<String, Map<String, Any?>>> {
         val snapshot = db.collection("notifications")
             .whereEqualTo("userId", userId)
-            .orderBy("createdAt", Query.Direction.DESCENDING)
-            .limit(50)
+            .limit(100)
             .get().await()
-        return snapshot.documents.map { it.id to (it.data ?: emptyMap()) }
+
+        val notifications = snapshot.documents.map { it.id to (it.data ?: emptyMap()) }
+        return sortNotificationsByCreatedAtDesc(notifications).take(50)
+    }
+
+    fun observeNotifications(userId: String): Flow<List<Pair<String, Map<String, Any?>>>> = callbackFlow {
+        val registration = db.collection("notifications")
+            .whereEqualTo("userId", userId)
+            .limit(100)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    // Keep the stream alive and avoid crashing the collector on transient listener errors.
+                    trySend(emptyList())
+                    return@addSnapshotListener
+                }
+                val notifications = snapshot?.documents?.map { it.id to (it.data ?: emptyMap()) } ?: emptyList()
+                trySend(sortNotificationsByCreatedAtDesc(notifications))
+            }
+        awaitClose { registration.remove() }
+    }
+
+    suspend fun countUnreadNotifications(userId: String): Int {
+        val snapshot = db.collection("notifications")
+            .whereEqualTo("userId", userId)
+            .whereEqualTo("isRead", false)
+            .get().await()
+        return snapshot.size()
     }
 
     suspend fun createNotification(
@@ -537,6 +597,86 @@ object FirebaseService {
             batch.update(doc.reference, "isRead", true)
         }
         batch.commit().await()
+    }
+
+    suspend fun markNotificationsReadByType(userId: String, type: String) {
+        val snapshot = db.collection("notifications")
+            .whereEqualTo("userId", userId)
+            .whereEqualTo("type", type)
+            .whereEqualTo("isRead", false)
+            .get().await()
+        val batch = db.batch()
+        for (doc in snapshot.documents) {
+            batch.update(doc.reference, "isRead", true)
+        }
+        batch.commit().await()
+    }
+
+    suspend fun ensureDailyWorkoutRiskNotification(
+        userId: String,
+        title: String,
+        body: String
+    ): Boolean {
+        val today = LocalDate.now()
+        val snapshot = db.collection("notifications")
+            .whereEqualTo("userId", userId)
+            .whereEqualTo("type", "workout_risk")
+            .limit(50)
+            .get().await()
+
+        val alreadyExistsToday = snapshot.documents.any { doc ->
+            val data = doc.data ?: return@any false
+            val action = data["action"] as? String
+            if (action != "miss_risk") return@any false
+            val createdAt = data["createdAt"]
+            parseLocalDateFromNotificationCreatedAt(createdAt) == today
+        }
+        if (alreadyExistsToday) return false
+
+        createNotification(
+            userId = userId,
+            title = title,
+            body = body,
+            type = "workout_risk",
+            action = "miss_risk"
+        )
+        return true
+    }
+
+    private fun parseLocalDateFromNotificationCreatedAt(raw: Any?): LocalDate? {
+        return when (raw) {
+            is com.google.firebase.Timestamp -> raw.toDate().toInstant().atZone(ZoneId.systemDefault()).toLocalDate()
+            is String -> runCatching {
+                Instant.parse(raw).atZone(ZoneId.systemDefault()).toLocalDate()
+            }.getOrNull()
+            else -> null
+        }
+    }
+
+    private fun sortNotificationsByCreatedAtDesc(
+        notifications: List<Pair<String, Map<String, Any?>>>
+    ): List<Pair<String, Map<String, Any?>>> {
+        return notifications.sortedByDescending { (_, data) ->
+            parseNotificationCreatedAtEpochMillis(data["createdAt"])
+        }
+    }
+
+    private fun parseNotificationCreatedAtEpochMillis(raw: Any?): Long {
+        return when (raw) {
+            is com.google.firebase.Timestamp -> raw.toDate().time
+            is String -> runCatching { Instant.parse(raw).toEpochMilli() }.getOrDefault(0L)
+            else -> 0L
+        }
+    }
+
+    private fun isMissingIndexError(e: Exception): Boolean {
+        return when (e) {
+            is FirebaseFirestoreException -> {
+                e.code == FirebaseFirestoreException.Code.FAILED_PRECONDITION ||
+                    (e.message?.contains("requires an index", ignoreCase = true) == true)
+            }
+            else -> e.message?.contains("requires an index", ignoreCase = true) == true
+        }
     }
 
     // ── Delete Patient ──────────────────────────────────────────────────
@@ -672,6 +812,33 @@ object FirebaseService {
             "timestamp" to com.google.firebase.firestore.FieldValue.serverTimestamp()
         )
         db.collection("chats").document(patientId).collection("messages").add(msg).await()
+
+        val receiverId = if (senderId == patientId) {
+            val patientUser = runCatching { fetchUser(patientId) }.getOrNull().orEmpty()
+            (patientUser["assignedDoctorId"] as? String)?.takeIf { it.isNotBlank() }
+        } else {
+            patientId
+        }
+
+        if (!receiverId.isNullOrBlank() && receiverId != senderId) {
+            val senderRole = runCatching {
+                (fetchUser(senderId)["role"] as? String ?: "").lowercase()
+            }.getOrDefault("")
+
+            val title = if (senderRole == "doctor" || senderRole == "admin") {
+                "New doctor message"
+            } else {
+                "New patient message"
+            }
+
+            createNotification(
+                userId = receiverId,
+                title = title,
+                body = "$senderName: ${text.take(90)}",
+                type = "message",
+                action = "chat_message"
+            )
+        }
     }
 
     fun observeChatMessages(patientId: String): kotlinx.coroutines.flow.Flow<List<Map<String, Any?>>> = kotlinx.coroutines.flow.callbackFlow {
@@ -710,5 +877,202 @@ object FirebaseService {
         db.collection("settings").document("appSettings")
             .set(mapOf("sessionLocksEnabled" to enabled), com.google.firebase.firestore.SetOptions.merge())
             .await()
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // EXERCISE ASSIGNMENT SYSTEM
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Create a new assignment (doctor assigns exercise to patient).
+     */
+    suspend fun createAssignment(data: Map<String, Any>): String {
+        currentUID ?: throw Exception("Not authenticated")
+        val ref = db.collection("assignments").document()
+        val mutableData = data.toMutableMap()
+        mutableData["id"] = ref.id
+        mutableData["createdAt"] = FieldValue.serverTimestamp()
+        ref.set(mutableData).await()
+        return ref.id
+    }
+
+    /**
+     * Fetch all assignments for a patient.
+     */
+    suspend fun fetchAssignments(patientId: String): List<Pair<String, Map<String, Any?>>> {
+        val snapshot = db.collection("assignments")
+            .whereEqualTo("patientId", patientId)
+            .whereEqualTo("isActive", true)
+            .get().await()
+        return snapshot.documents.map { it.id to (it.data ?: emptyMap()) }
+    }
+
+    /**
+     * Fetch assignments created by a doctor.
+     */
+    suspend fun fetchDoctorAssignments(doctorId: String): List<Pair<String, Map<String, Any?>>> {
+        val snapshot = db.collection("assignments")
+            .whereEqualTo("doctorId", doctorId)
+            .whereEqualTo("isActive", true)
+            .get().await()
+        return snapshot.documents.map { it.id to (it.data ?: emptyMap()) }
+    }
+
+    /**
+     * Update an existing assignment.
+     */
+    suspend fun updateAssignment(assignmentId: String, updates: Map<String, Any>) {
+        db.collection("assignments").document(assignmentId)
+            .update(updates).await()
+    }
+
+    /**
+     * Deactivate an assignment (soft delete).
+     */
+    suspend fun deactivateAssignment(assignmentId: String) {
+        db.collection("assignments").document(assignmentId)
+            .update("isActive", false).await()
+    }
+
+    // ── Session Logging ─────────────────────────────────────────────────────
+
+    /**
+     * Start a new exercise session.
+     */
+    suspend fun startSession(
+        assignmentId: String,
+        sessionDate: String,
+        sessionNumber: Int,
+        totalSets: Int
+    ): String {
+        val patientId = currentUID ?: throw Exception("Not authenticated")
+        val ref = db.collection("sessionLogs").document()
+        val data = hashMapOf<String, Any?>(
+            "id" to ref.id,
+            "assignmentId" to assignmentId,
+            "patientId" to patientId,
+            "sessionDate" to sessionDate,
+            "sessionNumber" to sessionNumber,
+            "startedAt" to FieldValue.serverTimestamp(),
+            "completedAt" to null,
+            "setsCompleted" to 0,
+            "totalSets" to totalSets,
+            "setLogs" to emptyList<Map<String, Any>>(),
+            "status" to "IN_PROGRESS",
+            "feedbackId" to null
+        )
+        ref.set(data).await()
+        return ref.id
+    }
+
+    /**
+     * Log completion of a single set within a session.
+     */
+    suspend fun logSetCompletion(
+        sessionId: String,
+        setNumber: Int,
+        videoWatchedSeconds: Int,
+        repsCompleted: Int?
+    ) {
+        val now = java.time.Instant.now().toString()
+        val setLog = hashMapOf<String, Any?>(
+            "setNumber" to setNumber,
+            "completedAt" to now,
+            "videoWatchedSeconds" to videoWatchedSeconds,
+            "repsCompleted" to repsCompleted
+        )
+        db.collection("sessionLogs").document(sessionId).update(
+            mapOf(
+                "setLogs" to FieldValue.arrayUnion(setLog),
+                "setsCompleted" to setNumber
+            )
+        ).await()
+    }
+
+    /**
+     * Complete a session (all sets done, user clicked Complete).
+     */
+    suspend fun completeSession(sessionId: String, feedbackId: String? = null) {
+        db.collection("sessionLogs").document(sessionId).update(
+            mapOf(
+                "status" to "COMPLETED",
+                "completedAt" to FieldValue.serverTimestamp(),
+                "feedbackId" to feedbackId
+            )
+        ).await()
+    }
+
+    /**
+     * Mark a session as abandoned (started but not finished).
+     */
+    suspend fun abandonSession(sessionId: String) {
+        db.collection("sessionLogs").document(sessionId).update(
+            mapOf(
+                "status" to "ABANDONED",
+                "completedAt" to FieldValue.serverTimestamp()
+            )
+        ).await()
+    }
+
+    /**
+     * Fetch sessions for a specific assignment and date.
+     */
+    suspend fun fetchSessionsForDate(
+        assignmentId: String,
+        sessionDate: String
+    ): List<Pair<String, Map<String, Any?>>> {
+        val snapshot = db.collection("sessionLogs")
+            .whereEqualTo("assignmentId", assignmentId)
+            .whereEqualTo("sessionDate", sessionDate)
+            .get().await()
+        return snapshot.documents.map { it.id to (it.data ?: emptyMap()) }
+    }
+
+    /**
+     * Fetch all sessions for an assignment (for history/stats).
+     */
+    suspend fun fetchAllSessionsForAssignment(
+        assignmentId: String
+    ): List<Pair<String, Map<String, Any?>>> {
+        val snapshot = db.collection("sessionLogs")
+            .whereEqualTo("assignmentId", assignmentId)
+            .get().await()
+        return snapshot.documents.map { it.id to (it.data ?: emptyMap()) }
+    }
+
+    /**
+     * Fetch today's sessions for a patient (across all assignments).
+     */
+    suspend fun fetchTodaysSessions(patientId: String): List<Pair<String, Map<String, Any?>>> {
+        val today = java.time.LocalDate.now().toString()
+        val snapshot = db.collection("sessionLogs")
+            .whereEqualTo("patientId", patientId)
+            .whereEqualTo("sessionDate", today)
+            .get().await()
+        return snapshot.documents.map { it.id to (it.data ?: emptyMap()) }
+    }
+
+    /**
+     * Find any in-progress session for a patient.
+     */
+    suspend fun findInProgressSession(patientId: String): Pair<String, Map<String, Any?>>? {
+        val snapshot = db.collection("sessionLogs")
+            .whereEqualTo("patientId", patientId)
+            .whereEqualTo("status", "IN_PROGRESS")
+            .limit(1)
+            .get().await()
+        return snapshot.documents.firstOrNull()?.let { it.id to (it.data ?: emptyMap()) }
+    }
+
+    /**
+     * Get session count for a specific assignment on a specific date.
+     */
+    suspend fun getCompletedSessionCount(assignmentId: String, sessionDate: String): Int {
+        val snapshot = db.collection("sessionLogs")
+            .whereEqualTo("assignmentId", assignmentId)
+            .whereEqualTo("sessionDate", sessionDate)
+            .whereEqualTo("status", "COMPLETED")
+            .get().await()
+        return snapshot.documents.size
     }
 }

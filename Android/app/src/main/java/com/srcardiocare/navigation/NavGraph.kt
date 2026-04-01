@@ -2,18 +2,26 @@
 package com.srcardiocare.navigation
 
 import android.net.Uri
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavType
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.srcardiocare.core.auth.AuthManager
 import com.srcardiocare.data.firebase.FirebaseService
@@ -27,14 +35,18 @@ import com.srcardiocare.ui.screens.doctor.DoctorDashboardScreen
 import com.srcardiocare.ui.screens.doctor.AdminDashboardScreen
 import com.srcardiocare.ui.screens.doctor.AddPatientScreen
 import com.srcardiocare.ui.screens.doctor.PatientProfileScreen
+import com.srcardiocare.ui.screens.doctor.AdminDoctorPatientsScreen
+import com.srcardiocare.ui.screens.doctor.AdminPatientAssignmentsScreen
 import com.srcardiocare.ui.screens.exercises.ExerciseLibraryScreen
 import com.srcardiocare.ui.screens.video.VideoUploadScreen
 import com.srcardiocare.ui.screens.schedule.ScheduleScreen
 import com.srcardiocare.ui.screens.analytics.AnalyticsScreen
 import com.srcardiocare.ui.screens.doctor.DoctorProfileScreen
 import com.srcardiocare.ui.screens.doctor.PatientListScreen
-import com.srcardiocare.ui.screens.patient.ExerciseListScreen
+import com.srcardiocare.ui.screens.patient.AssignmentListScreen
+import com.srcardiocare.ui.screens.workout.AssignmentWorkoutScreen
 import com.srcardiocare.ui.screens.notifications.NotificationsScreen
+import com.srcardiocare.data.model.Assignment
 
 /**
  * Central navigation graph. All routes use sealed class [Route].
@@ -82,6 +94,21 @@ sealed class Route(val path: String) {
     object PatientFeedbackChat : Route("doctor/patientChat/{patientId}") {
         fun createPath(patientId: String) = "doctor/patientChat/$patientId"
     }
+    
+    // Assignment-based exercise system
+    object AssignmentList : Route("patient/assignments")
+    object AssignmentWorkout : Route("patient/assignment-workout/{assignmentId}/{sessionNumber}") {
+        fun createPath(assignmentId: String, sessionNumber: Int) = 
+            "patient/assignment-workout/$assignmentId/$sessionNumber"
+    }
+    
+    // Admin routes for viewing doctor's patients and patient's assignments
+    object AdminDoctorPatients : Route("admin/doctor/{doctorId}/patients") {
+        fun createPath(doctorId: String) = "admin/doctor/$doctorId/patients"
+    }
+    object AdminPatientAssignments : Route("admin/patient/{patientId}/assignments") {
+        fun createPath(patientId: String) = "admin/patient/$patientId/assignments"
+    }
 }
 
 @Composable
@@ -118,18 +145,11 @@ fun SRCardiocareNavGraph(
         }
 
         composable(Route.ExerciseList.path) {
-            ExerciseListScreen(
+            com.srcardiocare.ui.screens.patient.ExerciseListScreen(
                 onExerciseTap = { name, videoUrl, sets, reps, instructions, planId, totalCount, isLastExercise ->
                     navController.navigate(
                         Route.WorkoutPlayer.createPath(
-                            name = name,
-                            videoUrl = videoUrl,
-                            sets = sets,
-                            reps = reps,
-                            instructions = instructions,
-                            planId = planId,
-                            totalCount = totalCount,
-                            isLastExercise = isLastExercise
+                            name, videoUrl, sets, reps, instructions, planId, totalCount, isLastExercise
                         )
                     )
                 },
@@ -201,8 +221,8 @@ fun SRCardiocareNavGraph(
 
         composable(Route.AdminDashboard.path) {
             AdminDashboardScreen(
-                onDoctorTap = { id -> navController.navigate("admin/doctor/$id") },
-                onPatientTap = { id -> navController.navigate("doctor/patient/$id") },
+                onDoctorTap = { id -> navController.navigate(Route.AdminDoctorPatients.createPath(id)) },
+                onPatientTap = { id -> navController.navigate(Route.AdminPatientAssignments.createPath(id)) },
                 onAddDoctor = { navController.navigate(Route.AddDoctor.path) },
                 onAddPatient = { navController.navigate(Route.AddPatient.path) },
                 onUserList = { navController.navigate(Route.PatientList.path) },
@@ -333,7 +353,123 @@ fun SRCardiocareNavGraph(
                 onSuccess = { navController.popBackStack() }
             )
         }
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // ASSIGNMENT-BASED EXERCISE SYSTEM
+        // ═══════════════════════════════════════════════════════════════════════
+        
+        composable(Route.AssignmentList.path) {
+            AssignmentListScreen(
+                onExerciseTap = { assignment, sessionNumber ->
+                    navController.navigate(Route.AssignmentWorkout.createPath(assignment.id, sessionNumber))
+                },
+                onBack = { navController.popBackStack() }
+            )
+        }
+        
+        composable(
+            route = Route.AssignmentWorkout.path,
+            arguments = listOf(
+                navArgument("assignmentId") { type = NavType.StringType },
+                navArgument("sessionNumber") { type = NavType.IntType }
+            )
+        ) { backStackEntry ->
+            val assignmentId = backStackEntry.arguments?.getString("assignmentId") ?: ""
+            val sessionNumber = backStackEntry.arguments?.getInt("sessionNumber") ?: 1
+            
+            // Fetch assignment data
+            var assignment by remember { mutableStateOf<Assignment?>(null) }
+            var isLoading by remember { mutableStateOf(true) }
+            
+            androidx.compose.runtime.LaunchedEffect(assignmentId) {
+                try {
+                    val patientId = FirebaseService.currentUID ?: return@LaunchedEffect
+                    val assignments = FirebaseService.fetchAssignments(patientId)
+                    val found = assignments.find { it.first == assignmentId }
+                    if (found != null) {
+                        assignment = parseAssignmentFromMap(found.first, found.second)
+                    }
+                } catch (_: Exception) {}
+                isLoading = false
+            }
+            
+            if (isLoading) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator()
+                }
+            } else if (assignment != null) {
+                AssignmentWorkoutScreen(
+                    assignment = assignment!!,
+                    sessionNumber = sessionNumber,
+                    onComplete = {
+                        navController.popBackStack()
+                    },
+                    onBack = { navController.popBackStack() }
+                )
+            } else {
+                // Assignment not found
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("Exercise not found")
+                }
+            }
+        }
+        
+        // Admin routes for viewing doctor's patients and patient's assignments
+        composable(
+            route = Route.AdminDoctorPatients.path,
+            arguments = listOf(navArgument("doctorId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val doctorId = backStackEntry.arguments?.getString("doctorId") ?: ""
+            AdminDoctorPatientsScreen(
+                doctorId = doctorId,
+                onPatientTap = { patientId -> 
+                    navController.navigate(Route.AdminPatientAssignments.createPath(patientId)) 
+                },
+                onBack = { navController.popBackStack() }
+            )
+        }
+        
+        composable(
+            route = Route.AdminPatientAssignments.path,
+            arguments = listOf(navArgument("patientId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val patientId = backStackEntry.arguments?.getString("patientId") ?: ""
+            AdminPatientAssignmentsScreen(
+                patientId = patientId,
+                onBack = { navController.popBackStack() }
+            )
+        }
     }
+}
+
+// Helper function to parse Assignment from Firebase map
+private fun parseAssignmentFromMap(id: String, data: Map<String, Any?>): Assignment {
+    return Assignment(
+        id = id,
+        patientId = data["patientId"] as? String ?: "",
+        doctorId = data["doctorId"] as? String ?: "",
+        exerciseId = data["exerciseId"] as? String ?: "",
+        exerciseName = data["exerciseName"] as? String ?: "Exercise",
+        exerciseVideoUrl = data["exerciseVideoUrl"] as? String,
+        exerciseThumbnailUrl = data["exerciseThumbnailUrl"] as? String,
+        exerciseCategory = data["exerciseCategory"] as? String,
+        exerciseDifficulty = data["exerciseDifficulty"] as? String,
+        startDate = data["startDate"] as? String ?: java.time.LocalDate.now().toString(),
+        endDate = data["endDate"] as? String ?: java.time.LocalDate.now().plusDays(7).toString(),
+        dailyFrequency = ((data["dailyFrequency"] as? Number)?.toInt() ?: 3).coerceIn(1, 3),
+        sets = (data["sets"] as? Number)?.toInt() ?: 3,
+        reps = (data["reps"] as? Number)?.toInt() ?: 10,
+        instructions = data["instructions"] as? String,
+        completionThreshold = (data["completionThreshold"] as? Number)?.toFloat() ?: 0.8f,
+        isActive = data["isActive"] as? Boolean ?: true,
+        createdAt = (data["createdAt"] as? Timestamp)?.toDate()?.toString()
+    )
 }
 
 @Composable

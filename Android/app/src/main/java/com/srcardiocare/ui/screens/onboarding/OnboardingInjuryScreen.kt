@@ -9,24 +9,31 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Accessibility
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.DirectionsRun
+import androidx.compose.material.icons.filled.DirectionsWalk
+import androidx.compose.material.icons.filled.FitnessCenter
+import androidx.compose.material.icons.filled.SelfImprovement
+import androidx.compose.material.icons.filled.SportsMartialArts
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.srcardiocare.ui.theme.DesignTokens
 
-private data class BodyPart(val name: String, val emoji: String, val subtitle: String)
+private data class BodyPart(val name: String, val icon: ImageVector, val subtitle: String)
 
 private val bodyParts = listOf(
-    BodyPart("Knee", "🦵", "ACL, Meniscus"),
-    BodyPart("Shoulder", "💪", "Rotator Cuff"),
-    BodyPart("Lower Back", "🔙", "Lumbar, Disc"),
-    BodyPart("Neck", "🧣", "Cervical"),
-    BodyPart("Ankle", "🦶", "Sprain, Fracture"),
-    BodyPart("Hip", "🏃", "Replacement, Bursitis"),
+    BodyPart("Knee", Icons.Default.DirectionsWalk, "ACL, Meniscus"),
+    BodyPart("Shoulder", Icons.Default.FitnessCenter, "Rotator Cuff"),
+    BodyPart("Lower Back", Icons.Default.Accessibility, "Lumbar, Disc"),
+    BodyPart("Neck", Icons.Default.SelfImprovement, "Cervical"),
+    BodyPart("Ankle", Icons.Default.DirectionsRun, "Sprain, Fracture"),
+    BodyPart("Hip", Icons.Default.SportsMartialArts, "Replacement, Bursitis"),
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -91,7 +98,7 @@ fun OnboardingInjuryScreen(onNext: () -> Unit, onBack: () -> Unit) {
                     ) {
                         Box(modifier = Modifier.fillMaxWidth().padding(DesignTokens.Spacing.MD)) {
                             Column {
-                                Text(part.emoji, style = MaterialTheme.typography.headlineMedium)
+                                Icon(part.icon, contentDescription = null, modifier = Modifier.size(32.dp), tint = if (selected) DesignTokens.Colors.Primary else MaterialTheme.colorScheme.onSurfaceVariant)
                                 Spacer(modifier = Modifier.height(DesignTokens.Spacing.SM))
                                 Text(part.name, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
                                 Text(part.subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

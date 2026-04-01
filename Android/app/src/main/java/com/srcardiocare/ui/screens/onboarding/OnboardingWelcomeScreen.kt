@@ -5,6 +5,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -37,7 +39,7 @@ fun OnboardingWelcomeScreen(onNext: () -> Unit, onSkip: () -> Unit) {
                     .background(DesignTokens.Colors.PrimaryLight),
                 contentAlignment = Alignment.Center
             ) {
-                Text("💪", style = MaterialTheme.typography.displayLarge)
+                Icon(Icons.Default.FitnessCenter, contentDescription = null, modifier = Modifier.size(80.dp), tint = DesignTokens.Colors.Primary)
             }
 
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.XXL))

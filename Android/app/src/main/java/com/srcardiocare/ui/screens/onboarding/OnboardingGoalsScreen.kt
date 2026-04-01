@@ -6,21 +6,27 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.DirectionsRun
+import androidx.compose.material.icons.filled.Healing
+import androidx.compose.material.icons.filled.LocalHospital
+import androidx.compose.material.icons.filled.SportsSoccer
+import androidx.compose.material.icons.filled.TrackChanges
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.srcardiocare.ui.theme.DesignTokens
 
-private data class Goal(val title: String, val icon: String)
+private data class Goal(val title: String, val icon: ImageVector)
 
 private val goals = listOf(
-    Goal("Reduce Pain", "🎯"),
-    Goal("Increase Mobility", "🏃"),
-    Goal("Post-Surgery Recovery", "🏥"),
-    Goal("Sports Performance", "⚽"),
+    Goal("Reduce Pain", Icons.Default.Healing),
+    Goal("Increase Mobility", Icons.Default.DirectionsRun),
+    Goal("Post-Surgery Recovery", Icons.Default.LocalHospital),
+    Goal("Sports Performance", Icons.Default.SportsSoccer),
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -91,7 +97,7 @@ fun OnboardingGoalsScreen(onComplete: () -> Unit, onBack: () -> Unit) {
                             onClick = { selectedGoal = goal.title },
                             colors = RadioButtonDefaults.colors(selectedColor = DesignTokens.Colors.Primary)
                         )
-                        Text(goal.icon, style = MaterialTheme.typography.headlineSmall)
+                        Icon(goal.icon, contentDescription = null, modifier = Modifier.size(28.dp), tint = if (selected) DesignTokens.Colors.Primary else MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(
                             text = goal.title,
                             fontWeight = FontWeight.Medium,

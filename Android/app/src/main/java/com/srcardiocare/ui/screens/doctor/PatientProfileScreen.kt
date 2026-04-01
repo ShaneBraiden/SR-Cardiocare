@@ -12,6 +12,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Event
+import androidx.compose.material.icons.filled.FitnessCenter
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -144,7 +150,7 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                 } else if (availableExercises.isEmpty()) {
                     Box(modifier = Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("📁", style = MaterialTheme.typography.displaySmall)
+                            Icon(Icons.Default.FitnessCenter, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             Spacer(modifier = Modifier.height(8.dp))
                             Text("No exercises in library", color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text("Upload some videos first", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -184,7 +190,7 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                                             .background(DesignTokens.Colors.PrimaryLight),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Text("🏋️", style = MaterialTheme.typography.bodyLarge)
+                                        Icon(Icons.Default.FitnessCenter, contentDescription = null, tint = DesignTokens.Colors.Primary, modifier = Modifier.size(20.dp))
                                     }
                                     Spacer(modifier = Modifier.width(DesignTokens.Spacing.MD))
                                     Column(modifier = Modifier.weight(1f)) {
@@ -197,7 +203,7 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                                             )
                                         }
                                     }
-                                    Text("＋", color = DesignTokens.Colors.Primary, fontWeight = FontWeight.Bold)
+                                    Icon(Icons.Default.Add, contentDescription = "Add", tint = DesignTokens.Colors.Primary, modifier = Modifier.size(20.dp))
                                 }
                             }
                         }
@@ -233,11 +239,11 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                         scope.launch {
                             try {
                                 FirebaseService.sendFeedback(patientId, feedbackMessage.trim())
-                                assignMessage = "✅ Feedback sent"
+                                assignMessage = "Feedback sent"
                                 showFeedbackDialog = false
                                 feedbackMessage = ""
                             } catch (e: Exception) {
-                                assignMessage = "❌ Failed to send feedback"
+                                assignMessage = "Failed to send feedback"
                             }
                             isSendingFeedback = false
                         }
@@ -298,7 +304,7 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                             modifier = Modifier.padding(DesignTokens.Spacing.MD),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("🏋️", style = MaterialTheme.typography.titleLarge)
+                            Icon(Icons.Default.FitnessCenter, contentDescription = null, tint = DesignTokens.Colors.Primary, modifier = Modifier.size(28.dp))
                             Spacer(modifier = Modifier.width(DesignTokens.Spacing.SM))
                             Column {
                                 Text(exName, fontWeight = FontWeight.SemiBold)
@@ -367,7 +373,7 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                             modifier = Modifier.padding(DesignTokens.Spacing.MD),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("📅", style = MaterialTheme.typography.titleMedium)
+                            Icon(Icons.Default.Event, contentDescription = null, tint = DesignTokens.Colors.Success, modifier = Modifier.size(24.dp))
                             Spacer(modifier = Modifier.width(DesignTokens.Spacing.SM))
                             Column {
                                 Text("Plan ends on", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -422,10 +428,10 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
 
                                 showPrescriptionDialog = false
                                 selectedExercise = null
-                                assignMessage = "✅ \"$exName\" prescribed to $patientName until $calculatedEndDate"
+                                assignMessage = "\"$exName\" prescribed to $patientName until $calculatedEndDate"
                                 loadPatientData()
                             } catch (e: Exception) {
-                                assignMessage = "❌ Failed: ${e.message}"
+                                assignMessage = "Failed: ${e.message}"
                             }
                             isAssigning = false
                         }
@@ -602,7 +608,11 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                         contentColor = DesignTokens.Colors.Primary
                     )
                 ) {
-                    Text("📹  Assign Exercise", fontWeight = FontWeight.SemiBold)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.VideoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Assign Exercise", fontWeight = FontWeight.SemiBold)
+                    }
                 }
             }
 
@@ -642,7 +652,7 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                         if (isAssigningDoctor) {
                             CircularProgressIndicator(modifier = Modifier.size(20.dp), color = DesignTokens.Colors.Primary, strokeWidth = 2.dp)
                         } else {
-                            Text("✏️", style = MaterialTheme.typography.titleMedium)
+                            Icon(Icons.Default.Edit, contentDescription = "Edit", tint = DesignTokens.Colors.Primary, modifier = Modifier.size(20.dp))
                         }
                     }
                 }
@@ -668,10 +678,17 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                                                             .collection("users").document(patientId)
                                                             .update("assignedDoctorId", docId)
                                                             .await()
+                                                        FirebaseService.createNotification(
+                                                            userId = patientId,
+                                                            title = "Doctor updated",
+                                                            body = "You are now assigned to $docName.",
+                                                            type = "plan",
+                                                            action = "doctor_changed"
+                                                        )
                                                         currentAssignedDoctorId = docId
-                                                        assignMessage = "✅ Doctor changed to $docName"
+                                                        assignMessage = "Doctor changed to $docName"
                                                     } catch (e: Exception) {
-                                                        assignMessage = "❌ Failed: ${e.message}"
+                                                        assignMessage = "Failed: ${e.message}"
                                                     }
                                                     isAssigningDoctor = false
                                                 }
@@ -732,7 +749,7 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                             .padding(DesignTokens.Spacing.XXL),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text("🏋️", style = MaterialTheme.typography.displaySmall)
+                        Icon(Icons.Default.FitnessCenter, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(modifier = Modifier.height(8.dp))
                         Text("No exercises assigned yet", fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
                         Text("Tap 'Assign Exercise' above to get started", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -765,7 +782,7 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                                 .background(DesignTokens.Colors.NeutralLight),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text("🏋️", style = MaterialTheme.typography.titleMedium)
+                            Icon(Icons.Default.FitnessCenter, contentDescription = null, tint = DesignTokens.Colors.Primary, modifier = Modifier.size(24.dp))
                         }
                         Spacer(modifier = Modifier.width(DesignTokens.Spacing.MD))
                         Column(modifier = Modifier.weight(1f)) {
@@ -777,14 +794,14 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                                 scope.launch {
                                     try {
                                         FirebaseService.removeExerciseFromPlan(patientId, ex)
-                                        assignMessage = "✅ Removed $name"
+                                        assignMessage = "Removed $name"
                                         loadPatientData() // reload list
                                     } catch (e: Exception) {
-                                        assignMessage = "❌ Failed to remove exercise"
+                                        assignMessage = "Failed to remove exercise"
                                     }
                                 }
                             }) {
-                                Text("🗑️")
+                                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = DesignTokens.Colors.Error)
                             }
                         }
                     }
@@ -812,7 +829,7 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                                         showDeleteDialog = false
                                         onBack() // Navigate back on success
                                     } catch (e: Exception) {
-                                        assignMessage = "❌ Failed to delete: ${e.message}"
+                                        assignMessage = "Failed to delete: ${e.message}"
                                         isDeleting = false
                                         showDeleteDialog = false
                                     }

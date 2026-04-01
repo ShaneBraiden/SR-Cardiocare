@@ -46,6 +46,10 @@ fun PatientChatScreen(onBack: () -> Unit) {
             currentName = "$f $l".trim()
         } catch (_: Exception) {}
 
+        try {
+            FirebaseService.markNotificationsReadByType(uid, "message")
+        } catch (_: Exception) { }
+
         // The chat room ID is just the patient ID
         FirebaseService.observeChatMessages(currentUid).collect { msgs ->
             rawMessages = msgs

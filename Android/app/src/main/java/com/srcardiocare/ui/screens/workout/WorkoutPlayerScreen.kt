@@ -11,7 +11,9 @@ import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Fullscreen
@@ -23,8 +25,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
@@ -38,6 +43,9 @@ enum class VideoOrientation {
     PORTRAIT,   // Height > Width (9:16, etc.)
     SQUARE      // Width == Height (1:1)
 }
+
+private enum class PlayerWorkoutPhase { READY, WATCHING, SET_COMPLETE, ALL_SETS_DONE, COMPLETING }
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,7 +63,9 @@ fun WorkoutPlayerScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val scrollState = rememberScrollState()
     var currentSet by remember { mutableIntStateOf(1) }
+    var phase by remember { mutableStateOf(PlayerWorkoutPhase.WATCHING) }
     val totalSets = if (sets > 0) sets else 3
     val detailText = "$totalSets Sets • $reps Reps"
     val instructionsText = instructions?.ifBlank { null }
@@ -84,6 +94,13 @@ fun WorkoutPlayerScreen(
                     override fun onPlaybackStateChanged(playbackState: Int) {
                         if (playbackState == Player.STATE_READY || playbackState == Player.STATE_ENDED) {
                             isVideoLoading = false
+                        }
+                        if (playbackState == Player.STATE_ENDED && phase == PlayerWorkoutPhase.WATCHING) {
+                            if (currentSet < totalSets) {
+                                phase = PlayerWorkoutPhase.SET_COMPLETE
+                            } else {
+                                phase = PlayerWorkoutPhase.ALL_SETS_DONE
+                            }
                         }
                     }
                     
@@ -198,6 +215,7 @@ fun WorkoutPlayerScreen(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
+                .verticalScroll(scrollState)
         ) {
             // Video area with dynamic aspect ratio and fullscreen button
             Box(
@@ -262,8 +280,8 @@ fun WorkoutPlayerScreen(
                     }
                 }
 
-                // Fullscreen button - only show for landscape videos or always for non-portrait
-                if (!videoUrl.isNullOrBlank() && videoOrientation != VideoOrientation.PORTRAIT) {
+                // Fullscreen button shown for all video orientations
+                if (!videoUrl.isNullOrBlank()) {
                     IconButton(
                         onClick = { isFullscreen = true },
                         modifier = Modifier
@@ -303,25 +321,18 @@ fun WorkoutPlayerScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.weight(1f))
+            Spacer(modifier = Modifier.height(DesignTokens.Spacing.XL))
 
             // Finish button
             Button(
                 onClick = {
                     if (currentSet < totalSets) {
-                        currentSet++
+                        phase = PlayerWorkoutPhase.SET_COMPLETE
                     } else {
-                        scope.launch {
-                            val uid = com.srcardiocare.data.firebase.FirebaseService.currentUID
-                            if (uid != null && planId.isNotBlank()) {
-                                try {
-                                    com.srcardiocare.data.firebase.FirebaseService.incrementExerciseProgress(uid, planId, totalCount)
-                                } catch (_: Exception) {}
-                            }
-                            onFinish()
-                        }
+                        phase = PlayerWorkoutPhase.ALL_SETS_DONE
                     }
                 },
+                enabled = phase == PlayerWorkoutPhase.WATCHING,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = DesignTokens.Spacing.XL, vertical = DesignTokens.Spacing.MD)
@@ -336,6 +347,143 @@ fun WorkoutPlayerScreen(
             }
 
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+
+            // Popups
+            if (phase == PlayerWorkoutPhase.SET_COMPLETE) {
+                SetCompletePopup(
+                    currentSet = currentSet,
+                    totalSets = totalSets,
+                    onContinue = {
+                        currentSet++
+                        phase = PlayerWorkoutPhase.WATCHING
+                        exoPlayer?.seekTo(0)
+                        exoPlayer?.play()
+                    },
+                    onFinishLater = onBack
+                )
+            } else if (phase == PlayerWorkoutPhase.ALL_SETS_DONE || phase == PlayerWorkoutPhase.COMPLETING) {
+                AllSetsDonePopup(
+                    isCompleting = phase == PlayerWorkoutPhase.COMPLETING,
+                    onComplete = {
+                        phase = PlayerWorkoutPhase.COMPLETING
+                        scope.launch {
+                            val uid = com.srcardiocare.data.firebase.FirebaseService.currentUID
+                            if (uid != null && planId.isNotBlank()) {
+                                try {
+                                    com.srcardiocare.data.firebase.FirebaseService.incrementExerciseProgress(uid, planId, totalCount)
+                                } catch (_: Exception) {}
+                            }
+                            onFinish()
+                        }
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SetCompletePopup(
+    currentSet: Int,
+    totalSets: Int,
+    onContinue: () -> Unit,
+    onFinishLater: () -> Unit
+) {
+    Dialog(
+        onDismissRequest = {},
+        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
+    ) {
+        Card(
+            shape = RoundedCornerShape(DesignTokens.Radius.XL),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(DesignTokens.Spacing.XL),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    "Set $currentSet Complete!",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = DesignTokens.Colors.Success
+                )
+                Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+                Text(
+                    "Great job! Ready for set ${currentSet + 1}?",
+                    style = MaterialTheme.typography.bodyLarge,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(DesignTokens.Spacing.XL))
+                
+                Button(
+                    onClick = onContinue,
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(DesignTokens.Radius.Base),
+                    colors = ButtonDefaults.buttonColors(containerColor = DesignTokens.Colors.Primary)
+                ) {
+                    Text("Start Set ${currentSet + 1}", fontWeight = FontWeight.Bold)
+                }
+                
+                Spacer(modifier = Modifier.height(DesignTokens.Spacing.SM))
+                
+                TextButton(
+                    onClick = onFinishLater,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Finish Later", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AllSetsDonePopup(
+    isCompleting: Boolean,
+    onComplete: () -> Unit
+) {
+    Dialog(
+        onDismissRequest = {},
+        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
+    ) {
+        Card(
+            shape = RoundedCornerShape(DesignTokens.Radius.XL),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(DesignTokens.Spacing.XL),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    "Workout Complete!",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = DesignTokens.Colors.Success
+                )
+                Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+                Text(
+                    "You have successfully finished all sets for this exercise.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(DesignTokens.Spacing.XL))
+                
+                Button(
+                    onClick = onComplete,
+                    enabled = !isCompleting,
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(DesignTokens.Radius.Base),
+                    colors = ButtonDefaults.buttonColors(containerColor = DesignTokens.Colors.Primary)
+                ) {
+                    if (isCompleting) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White, strokeWidth = 2.dp)
+                    } else {
+                        Text("Complete", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
         }
     }
 }

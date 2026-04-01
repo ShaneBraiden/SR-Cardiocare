@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -61,24 +62,30 @@ fun PatientListScreen(
                 FirebaseService.fetchPatients(uid)
             }
 
-            // Compute status based on workout completion for patients
+            // Compute status based on today's assignment completion for patients
             val patientStatusMap = mutableMapOf<String, UserStatus>()
+            val today = java.time.LocalDate.now().toString()
             users.filter { (_, data) ->
                 ((data["role"] as? String) ?: "patient").lowercase() == "patient"
             }.forEach { (patientId, _) ->
                 try {
-                    val workouts = FirebaseService.fetchWorkouts(patientId)
-                    val totalWorkouts = workouts.size
-                    val completedWorkouts = workouts.count { (_, workoutData) ->
-                        val completedAt = workoutData["completedAt"]
-                        completedAt is com.google.firebase.Timestamp || completedAt is String
-                    }
-                    
+                    val assignments = FirebaseService.fetchAssignments(patientId)
                     patientStatusMap[patientId] = when {
-                        totalWorkouts == 0 -> UserStatus.INACTIVE
-                        completedWorkouts == totalWorkouts -> UserStatus.ON_TRACK  // 100%
-                        completedWorkouts >= totalWorkouts / 2 -> UserStatus.NEEDS_ATTENTION  // 50-99%
-                        else -> UserStatus.INACTIVE  // <50%
+                        assignments.isEmpty() -> UserStatus.INACTIVE
+                        else -> {
+                            val completedAssignmentsToday = assignments.count { (assignmentId, assignmentData) ->
+                                val dailyFrequency = ((assignmentData["dailyFrequency"] as? Number)?.toInt() ?: 3).coerceIn(1, 3)
+                                val completedSessionsToday = try {
+                                    FirebaseService.fetchSessionsForDate(assignmentId, today).count { (_, sessionData) ->
+                                        ((sessionData["status"] as? String) ?: "").equals("COMPLETED", ignoreCase = true)
+                                    }
+                                } catch (_: Exception) {
+                                    0
+                                }
+                                completedSessionsToday >= dailyFrequency
+                            }
+                            if (completedAssignmentsToday == assignments.size) UserStatus.ON_TRACK else UserStatus.NEEDS_ATTENTION
+                        }
                     }
                 } catch (_: Exception) {
                     patientStatusMap[patientId] = UserStatus.INACTIVE
@@ -265,7 +272,7 @@ fun PatientListScreen(
                                     .padding(DesignTokens.Spacing.XXXL),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Text("👥", style = MaterialTheme.typography.displaySmall)
+                                Icon(Icons.Default.People, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
                                 Text(
                                     if (searchQuery.isBlank()) "No users yet" else "No users match \"$searchQuery\"",

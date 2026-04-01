@@ -211,7 +211,7 @@ fun AdminDoctorProfileScreen(
                                 "clinicName" to clinicName.trim()
                             )
                             FirebaseService.updateUserById(doctorId, updates)
-                            snackbarHostState.showSnackbar("✅ Doctor updated successfully")
+                            snackbarHostState.showSnackbar("Doctor updated successfully")
                         } catch (e: Exception) {
                             errorMessage = "Failed to update: ${e.message}"
                         }

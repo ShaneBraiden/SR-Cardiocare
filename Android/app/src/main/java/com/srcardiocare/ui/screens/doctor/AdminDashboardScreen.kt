@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.LocalHospital
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
@@ -272,6 +273,32 @@ fun AdminDashboardScreen(
                     Spacer(modifier = Modifier.height(DesignTokens.Spacing.LG))
                 }
 
+                // Add-user cards (requested in-dashboard cards)
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = DesignTokens.Spacing.XL),
+                        horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.MD)
+                    ) {
+                        QuickActionCard(
+                            modifier = Modifier.weight(1f),
+                            icon = Icons.Default.Add,
+                            title = "Add Doctor",
+                            subtitle = "Create doctor account",
+                            onClick = onAddDoctor
+                        )
+                        QuickActionCard(
+                            modifier = Modifier.weight(1f),
+                            icon = Icons.Default.Add,
+                            title = "Add Patient",
+                            subtitle = "Create patient account",
+                            onClick = onAddPatient
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(DesignTokens.Spacing.LG))
+                }
+
                 // Doctors section header
                 item {
                     Row(
@@ -325,7 +352,12 @@ fun AdminDashboardScreen(
                                     .padding(DesignTokens.Spacing.XXXL),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Text("👨‍⚕️", style = MaterialTheme.typography.displaySmall)
+                                Icon(
+                                    Icons.Default.LocalHospital,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(48.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                                 Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
                                 Text("No doctors yet", fontWeight = FontWeight.SemiBold)
                                 Spacer(modifier = Modifier.height(DesignTokens.Spacing.XS))

@@ -19,6 +19,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
@@ -157,8 +160,7 @@ fun ExerciseListScreen(
 
                 val latestWorkout = todayWorkouts.firstOrNull()
                 completedCount = if (latestWorkout != null) {
-                    val comp = (latestWorkout.second["exercisesCompleted"] as? Number)?.toInt() ?: 0
-                    if (comp < totalCount) comp else 0
+                    (latestWorkout.second["exercisesCompleted"] as? Number)?.toInt() ?: 0
                 } else {
                     0
                 }
@@ -230,7 +232,6 @@ fun ExerciseListScreen(
                     val statusLabel = when {
                         isExerciseExpired -> "This workout has expired"
                         status == ExStatus.EXPIRED -> "Plan expired"
-                        status == ExStatus.DAILY_LIMIT -> "Daily limit reached"
                         else -> null
                     }
 
@@ -267,7 +268,18 @@ fun ExerciseListScreen(
         isRefreshing = false
     }
 
-    LaunchedEffect(Unit) { loadData() }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                scope.launch { loadData() }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -333,37 +345,12 @@ fun ExerciseListScreen(
                                 Text("Today's Progress", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text("$completedCount of $totalCount exercises", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text("Sessions: $fullyCompletedToday / $MAX_WORKOUTS_PER_DAY", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = DesignTokens.Colors.Primary)
                             }
                         }
                     }
                 }
 
-                // Daily limit warning
-                if (dailyLimitReached) {
-                    item {
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = DesignTokens.Spacing.XL, vertical = DesignTokens.Spacing.SM),
-                            shape = RoundedCornerShape(DesignTokens.Radius.LG),
-                            colors = CardDefaults.cardColors(containerColor = DesignTokens.Colors.Warning.copy(alpha = 0.1f))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(DesignTokens.Spacing.MD),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.SM)
-                            ) {
-                                Icon(Icons.Default.Lock, contentDescription = null, tint = DesignTokens.Colors.Warning)
-                                Column {
-                                    Text("Daily Limit Reached", fontWeight = FontWeight.SemiBold, color = DesignTokens.Colors.Warning)
-                                    Text("Come back tomorrow!", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
-                        }
-                    }
-                }
+                // Daily limit warning removed by user request
 
                 // Loading state
                 if (isLoading) {
@@ -395,7 +382,7 @@ fun ExerciseListScreen(
                             item = exercise,
                             sessionLocksEnabled = sessionLocksEnabled,
                             onClick = {
-                                if (sessionLocksEnabled && (exercise.status == ExStatus.COMPLETED || exercise.status == ExStatus.EXPIRED || exercise.status == ExStatus.DAILY_LIMIT)) {
+                                if (exercise.status == ExStatus.COMPLETED || (sessionLocksEnabled && exercise.status == ExStatus.EXPIRED)) {
                                     // Can't open
                                 } else {
                                     onExerciseTap(
@@ -446,7 +433,7 @@ fun ExerciseListScreen(
 
 @Composable
 private fun ExerciseRow(item: ExItem, sessionLocksEnabled: Boolean, onClick: () -> Unit) {
-    val isBlocked = sessionLocksEnabled && (item.status == ExStatus.COMPLETED || item.status == ExStatus.EXPIRED || item.status == ExStatus.DAILY_LIMIT)
+    val isBlocked = (item.status == ExStatus.COMPLETED) || (sessionLocksEnabled && item.status == ExStatus.EXPIRED)
 
     Card(
         modifier = Modifier
@@ -499,7 +486,7 @@ private fun ExerciseRow(item: ExItem, sessionLocksEnabled: Boolean, onClick: () 
                     text = item.name,
                     fontWeight = FontWeight.Medium,
                     color = if (isBlocked) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
-                    textDecoration = if (item.status == ExStatus.COMPLETED) TextDecoration.LineThrough else TextDecoration.None
+                    textDecoration = if (item.status == ExStatus.COMPLETED || item.status == ExStatus.DAILY_LIMIT) TextDecoration.LineThrough else TextDecoration.None
                 )
                 Text(item.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 
