@@ -200,9 +200,6 @@ fun LoginScreen(onLoginSuccess: (role: String) -> Unit, onChangePassword: () -> 
                                 val mustChangePassword = userData["mustChangePassword"] as? Boolean ?: false
                                 val authManager = AuthManager(context)
                                 authManager.userRole = role
-                                if (role != "PATIENT") {
-                                    authManager.onboardingCompleted = true
-                                }
 
                                 // Check if user needs to change password
                                 if (mustChangePassword) {

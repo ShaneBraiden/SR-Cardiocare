@@ -35,14 +35,13 @@ import java.time.temporal.ChronoUnit
 @Composable
 fun AssignmentListScreen(
     onExerciseTap: (assignment: Assignment, sessionNumber: Int) -> Unit,
+    onHistoryTap: () -> Unit,
     onBack: () -> Unit
 ) {
     var activeExercises by remember { mutableStateOf<List<ActiveExerciseItem>>(emptyList()) }
-    var historyExercises by remember { mutableStateOf<List<HistoryExerciseItem>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    var showHistory by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
     val today = LocalDate.now()
@@ -73,14 +72,18 @@ fun AssignmentListScreen(
                 // Skip if not yet started
                 if (today.isBefore(startDate)) continue
 
-                // Check if expired (past end_date)
-                if (today.isAfter(endDate)) {
-                    // Move to history - build history item inline
-                    val allSessions = FirebaseService.fetchAllSessionsForAssignment(assignment.id)
-                    val completedSessions = allSessions.count { it.second["status"] == "COMPLETED" }
-                    
-                    val totalDays = ChronoUnit.DAYS.between(startDate, endDate).toInt() + 1
-                    val totalPossible = totalDays * assignment.dailyFrequency
+                // Fetch all sessions to calculate daily history and today's status
+                val allSessions = FirebaseService.fetchAllSessionsForAssignment(assignment.id)
+                val groupedByDate = allSessions.groupBy { it.second["sessionDate"] as? String ?: "" }
+
+                // 1. Build History for all PAST days (from startDate up to yesterday, or endDate if expired)
+                val limitDate = if (today.isAfter(endDate)) endDate else today.minusDays(1)
+                var iterDate = startDate
+                while (!iterDate.isAfter(limitDate)) {
+                    val dateStr = iterDate.toString()
+                    val daysSessions = groupedByDate[dateStr] ?: emptyList()
+                    val completedSessions = daysSessions.count { it.second["status"] == "COMPLETED" }
+                    val totalPossible = assignment.dailyFrequency
                     
                     val completionRate = if (totalPossible > 0) {
                         completedSessions.toFloat() / totalPossible
@@ -99,12 +102,16 @@ fun AssignmentListScreen(
                             completionRate = completionRate,
                             sessionsCompleted = completedSessions,
                             sessionsPossible = totalPossible,
-                            endDate = assignment.endDate
+                            endDate = dateStr // We use 'endDate' field to store this specific history date
                         )
                     )
-                } else {
+                    iterDate = iterDate.plusDays(1)
+                }
+
+                // 2. If it's still active today, build Active list
+                if (!today.isAfter(endDate)) {
                     // Active today
-                    val assignmentSessions = sessionsByAssignment[assignment.id] ?: emptyList()
+                    val assignmentSessions = groupedByDate[today.toString()] ?: emptyList()
                     val completedSessions = assignmentSessions.count { 
                         it.second["status"] == "COMPLETED" 
                     }
@@ -138,8 +145,6 @@ fun AssignmentListScreen(
 
             // Sort: incomplete first, then done (strikethrough at bottom)
             activeExercises = activeList.sortedBy { it.isDoneToday }
-            // Sort history: most recent first
-            historyExercises = historyList.sortedByDescending { it.endDate }
             errorMessage = null
 
         } catch (e: Exception) {
@@ -158,10 +163,20 @@ fun AssignmentListScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("My Exercises") },
+                title = { 
+                    Column {
+                        Text("Daily Exercises", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                        Text(today.format(dateFormatter), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onHistoryTap) {
+                        Icon(Icons.Default.History, contentDescription = "History")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -253,7 +268,7 @@ fun AssignmentListScreen(
                 }
 
                 // Empty state for active
-                if (!isLoading && activeExercises.isEmpty() && historyExercises.isEmpty()) {
+                if (!isLoading && activeExercises.isEmpty()) {
                     item {
                         Box(
                             modifier = Modifier
@@ -285,54 +300,6 @@ fun AssignmentListScreen(
                     }
                 }
 
-                // ═══════════════════════════════════════════════════════════════
-                // HISTORY SECTION
-                // ═══════════════════════════════════════════════════════════════
-                if (!isLoading && historyExercises.isNotEmpty()) {
-                    item {
-                        Spacer(modifier = Modifier.height(DesignTokens.Spacing.LG))
-                        HorizontalDivider(modifier = Modifier.padding(horizontal = DesignTokens.Spacing.XL))
-                        Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
-                    }
-
-                    item {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { showHistory = !showHistory }
-                                .padding(
-                                    horizontal = DesignTokens.Spacing.XL,
-                                    vertical = DesignTokens.Spacing.SM
-                                ),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    Icons.Default.History,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(modifier = Modifier.width(DesignTokens.Spacing.SM))
-                                Text(
-                                    "History (${historyExercises.size})",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                            Icon(
-                                if (showHistory) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                contentDescription = if (showHistory) "Collapse" else "Expand"
-                            )
-                        }
-                    }
-
-                    if (showHistory) {
-                        items(historyExercises, key = { it.assignment.id }) { item ->
-                            HistoryExerciseCard(item = item)
-                        }
-                    }
-                }
             }
         }
     }
@@ -565,7 +532,7 @@ private fun HistoryExerciseCard(item: HistoryExerciseItem) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    "Ended ${endDate.format(dateFormatter)}",
+                    "${endDate.format(dateFormatter)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                 )

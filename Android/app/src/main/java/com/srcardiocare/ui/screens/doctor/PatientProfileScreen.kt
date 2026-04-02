@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -34,7 +35,7 @@ import kotlinx.coroutines.tasks.await
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: () -> Unit) {
+fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: () -> Unit, onHistoryTap: () -> Unit) {
     var patientName by remember { mutableStateOf("") }
     var patientCondition by remember { mutableStateOf("") }
     var patientInitials by remember { mutableStateOf("") }
@@ -271,12 +272,13 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
         val exName = exData["name"] as? String ?: exData["title"] as? String ?: "Exercise"
         val videoUrl = exData["videoUrl"] as? String
         val instructions = exData["instructions"]
-        val defaultSets = (exData["sets"] as? Number)?.toInt() ?: 3
+        val initialSets = (exData["sets"] as? Number)?.toInt() ?: 3
         val defaultReps = (exData["reps"] as? Number)?.toInt() ?: 10
         val category = exData["category"] as? String ?: ""
         val difficulty = exData["difficulty"] as? String ?: ""
 
         var isAssigning by remember { mutableStateOf(false) }
+        var customSetsInput by remember { mutableStateOf(initialSets.toString()) }
 
         // Calculate end date based on mode
         val calculatedEndDate = remember(prescriptionMode, prescriptionDays, prescriptionEndDate) {
@@ -363,6 +365,21 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
 
                     Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
 
+                    // Custom sets input
+                    Text("Sets per Session", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelLarge)
+                    Spacer(modifier = Modifier.height(DesignTokens.Spacing.SM))
+                    OutlinedTextField(
+                        value = customSetsInput,
+                        onValueChange = { if (it.all { c -> c.isDigit() } && it.length <= 2) customSetsInput = it },
+                        label = { Text("Number of Sets") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(DesignTokens.Radius.Base),
+                        singleLine = true,
+                        trailingIcon = { Text("sets", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    )
+
+                    Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+
                     // Show calculated end date
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -402,12 +419,14 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                                 // Individual exercise expiry date
                                 val exerciseExpiryDate = calculatedEndDate
 
+                                val assignedSets = customSetsInput.toIntOrNull()?.coerceIn(1, 20) ?: initialSets
+
                                 val exerciseData = mapOf<String, Any>(
                                     "exerciseId" to exId,
                                     "name" to exName,
                                     "category" to category,
                                     "difficulty" to difficulty,
-                                    "customSets" to defaultSets,
+                                    "customSets" to assignedSets,
                                     "customReps" to defaultReps,
                                     "videoUrl" to (videoUrl ?: ""),
                                     "instructions" to when (instructions) {
@@ -460,6 +479,11 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onHistoryTap) {
+                        Icon(Icons.Default.History, contentDescription = "Patient History")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)

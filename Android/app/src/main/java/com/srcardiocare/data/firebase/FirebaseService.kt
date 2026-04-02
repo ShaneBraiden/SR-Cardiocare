@@ -283,6 +283,26 @@ object FirebaseService {
             createPlan(planData)
         }
 
+        // Also create a standalone Assignment for the new assignment-based system
+        val assignmentData = hashMapOf<String, Any>(
+            "patientId" to patientId,
+            "doctorId" to doctorId,
+            "exerciseId" to (exerciseData["exerciseId"] ?: ""),
+            "exerciseName" to (exerciseData["name"] ?: ""),
+            "exerciseVideoUrl" to (exerciseData["videoUrl"] ?: ""),
+            "exerciseCategory" to (exerciseData["category"] ?: ""),
+            "exerciseDifficulty" to (exerciseData["difficulty"] ?: ""),
+            "startDate" to java.time.LocalDate.now().toString(),
+            "endDate" to java.time.LocalDate.now().plusDays(7).toString(), // Default to 7 days
+            "dailyFrequency" to 1,
+            "sets" to (exerciseData["customSets"] ?: exerciseData["sets"] ?: 3),
+            "reps" to (exerciseData["customReps"] ?: exerciseData["reps"] ?: 10),
+            "instructions" to (exerciseData["instructions"] ?: ""),
+            "completionThreshold" to 1.0f,
+            "isActive" to true
+        )
+        createAssignment(assignmentData)
+
         val exerciseName = exerciseData["name"]?.toString()
             ?: exerciseData["title"]?.toString()
             ?: "a new exercise"
@@ -332,6 +352,26 @@ object FirebaseService {
             )
             createPlan(planData)
         }
+
+        // Also create a standalone Assignment for the new assignment-based system
+        val assignmentData = hashMapOf<String, Any>(
+            "patientId" to patientId,
+            "doctorId" to doctorId,
+            "exerciseId" to (exerciseData["exerciseId"] ?: ""),
+            "exerciseName" to (exerciseData["name"] ?: ""),
+            "exerciseVideoUrl" to (exerciseData["videoUrl"] ?: ""),
+            "exerciseCategory" to (exerciseData["category"] ?: ""),
+            "exerciseDifficulty" to (exerciseData["difficulty"] ?: ""),
+            "startDate" to java.time.LocalDate.now().toString(),
+            "endDate" to expiryDate,
+            "dailyFrequency" to 1,
+            "sets" to (exerciseData["customSets"] ?: exerciseData["sets"] ?: 3),
+            "reps" to (exerciseData["customReps"] ?: exerciseData["reps"] ?: 10),
+            "instructions" to (exerciseData["instructions"] ?: ""),
+            "completionThreshold" to 1.0f,
+            "isActive" to true
+        )
+        createAssignment(assignmentData)
 
         val exerciseName = exerciseData["name"]?.toString()
             ?: exerciseData["title"]?.toString()

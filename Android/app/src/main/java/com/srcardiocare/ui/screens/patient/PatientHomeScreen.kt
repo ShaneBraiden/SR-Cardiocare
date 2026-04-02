@@ -80,101 +80,83 @@ fun PatientHomeScreen(
 
                         FirebaseService.updateLastSeen()
 
-                        val plans = FirebaseService.fetchPlans(uid)
-                        val activePlan = plans.firstOrNull { (it.second["isActive"] as? Boolean) == true }
-                            ?: plans.firstOrNull()
-                        if (activePlan != null) {
-                            val planData = activePlan.second
+                        // Use assignment-based progress tracking
+                        val today = LocalDate.now()
+                        val rawAssignments = FirebaseService.fetchAssignments(uid)
+                        val todaySessions = try { FirebaseService.fetchTodaysSessions(uid) } catch (_: Exception) { emptyList() }
 
-                            // Check plan expiry
-                            val expiryDateRaw = planData["expiryDate"]
-                            val expiryDays = (planData["expiryDays"] as? Number)?.toInt()
-                            val planCreatedAt = planData["createdAt"]
-                            val today = LocalDate.now()
+                        // Count active assignments for today
+                        var activeCount = 0
+                        var doneCount = 0
 
-                            var computedExpiryDate: LocalDate? = null
+                        for ((id, data) in rawAssignments) {
+                            val startDate = try { LocalDate.parse(data["startDate"] as? String ?: "") } catch (_: Exception) { continue }
+                            val endDate = try { LocalDate.parse(data["endDate"] as? String ?: "") } catch (_: Exception) { continue }
 
+                            // Only count assignments active today
+                            if (today.isBefore(startDate) || today.isAfter(endDate)) continue
+
+                            activeCount++
+
+                            val dailyFreq = ((data["dailyFrequency"] as? Number)?.toInt() ?: 3).coerceIn(1, 3)
+                            val assignmentSessions = todaySessions.filter {
+                                (it.second["assignmentId"] as? String) == id
+                            }
+                            val completedSessions = assignmentSessions.count {
+                                it.second["status"] == "COMPLETED"
+                            }
+                            if (completedSessions >= dailyFreq) {
+                                doneCount++
+                            }
+                        }
+
+                        totalCount = activeCount
+                        completedCount = doneCount
+
+                        // Check expiry from assignments
+                        val nearestExpiry = rawAssignments.mapNotNull { (_, data) ->
+                            try { LocalDate.parse(data["endDate"] as? String ?: "") } catch (_: Exception) { null }
+                        }.filter { !today.isAfter(it) }.minOrNull()
+
+                        expiryText = if (nearestExpiry != null) {
+                            val daysRemaining = java.time.temporal.ChronoUnit.DAYS.between(today, nearestExpiry).toInt()
                             when {
-                                expiryDateRaw is String -> {
-                                    try {
-                                        computedExpiryDate = LocalDate.parse(expiryDateRaw)
-                                    } catch (_: Exception) { }
-                                }
-                                expiryDateRaw is com.google.firebase.Timestamp -> {
-                                    computedExpiryDate = expiryDateRaw.toDate().toInstant()
-                                        .atZone(ZoneId.systemDefault()).toLocalDate()
-                                }
-                                expiryDays != null && planCreatedAt is com.google.firebase.Timestamp -> {
-                                    val createdDate = planCreatedAt.toDate().toInstant()
-                                        .atZone(ZoneId.systemDefault()).toLocalDate()
-                                    computedExpiryDate = createdDate.plusDays(expiryDays.toLong())
-                                }
+                                daysRemaining < 0 -> "Plan Expired"
+                                daysRemaining == 0 -> "Expires Today"
+                                else -> "Expires in $daysRemaining days"
+                            }
+                        } else null
+
+                        val pendingExercises = (totalCount - completedCount).coerceAtLeast(0)
+                        val hourNow = LocalDateTime.now().hour
+                        if (pendingExercises > 0 && hourNow >= 18) {
+                            val reminderTitle = "Workout reminder"
+                            val reminderBody = "You still have $pendingExercises exercise${if (pendingExercises != 1) "s" else ""} pending for today."
+
+                            val created = try {
+                                FirebaseService.ensureDailyWorkoutRiskNotification(
+                                    userId = uid,
+                                    title = reminderTitle,
+                                    body = reminderBody
+                                )
+                            } catch (_: Exception) {
+                                false
                             }
 
-                            expiryText = if (computedExpiryDate != null) {
-                                val daysRemaining = java.time.temporal.ChronoUnit.DAYS.between(today, computedExpiryDate).toInt()
-                                if (daysRemaining < 0) {
-                                    "Plan Expired"
-                                } else if (daysRemaining == 0) {
-                                    "Expires Today"
-                                } else {
-                                    "Expires in $daysRemaining days"
-                                }
-                            } else null
-
-                            val planExercises = planData["exercises"] as? List<*> ?: emptyList<Any>()
-                            totalCount = planExercises.size
-
-                            // Workout history tracking
-                            val workouts = try { FirebaseService.fetchWorkouts(uid) } catch (_: Exception) { emptyList() }
-
-                            val todayStart = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toEpochSecond()
-                            val todayWorkouts = workouts.filter {
-                                (it.second["startedAt"] as? com.google.firebase.Timestamp)?.seconds ?: 0L >= todayStart
-                            }
-
-                            fullyCompletedToday = todayWorkouts.count {
-                                (it.second["exercisesCompleted"] as? Number)?.toInt() == totalCount
-                            }
-
-                            val latestWorkout = todayWorkouts.firstOrNull()
-                            completedCount = if (latestWorkout != null) {
-                                (latestWorkout.second["exercisesCompleted"] as? Number)?.toInt() ?: 0
-                            } else {
-                                0
-                            }
-
-                            val pendingExercises = (totalCount - completedCount).coerceAtLeast(0)
-                            val hourNow = LocalDateTime.now().hour
-                            if (pendingExercises > 0 && hourNow >= 18) {
-                                val reminderTitle = "Workout reminder"
-                                val reminderBody = "You still have $pendingExercises exercise${if (pendingExercises != 1) "s" else ""} pending for today."
-
-                                val created = try {
-                                    FirebaseService.ensureDailyWorkoutRiskNotification(
-                                        userId = uid,
-                                        title = reminderTitle,
-                                        body = reminderBody
-                                    )
-                                } catch (_: Exception) {
-                                    false
-                                }
-
-                                if (created) {
-                                    NotificationService.showWorkoutReminderNotification(
-                                        context = context,
-                                        workoutName = "Today's workout",
-                                        minutesBefore = 0,
-                                        notificationId = 3901
-                                    )
-                                    popupController.show(
-                                        type = PopupType.WARNING,
-                                        title = reminderTitle,
-                                        message = reminderBody,
-                                        primaryAction = PopupAction("Open", onExerciseTap, true),
-                                        secondaryAction = PopupAction("Later", {})
-                                    )
-                                }
+                            if (created) {
+                                NotificationService.showWorkoutReminderNotification(
+                                    context = context,
+                                    workoutName = "Today's workout",
+                                    minutesBefore = 0,
+                                    notificationId = 3901
+                                )
+                                popupController.show(
+                                    type = PopupType.WARNING,
+                                    title = reminderTitle,
+                                    message = reminderBody,
+                                    primaryAction = PopupAction("Open", onExerciseTap, true),
+                                    secondaryAction = PopupAction("Later", {})
+                                )
                             }
                         }
                     } catch (_: Exception) { }

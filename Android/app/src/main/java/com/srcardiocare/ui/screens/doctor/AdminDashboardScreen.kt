@@ -15,7 +15,6 @@ import androidx.compose.material.icons.filled.LocalHospital
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
@@ -43,7 +42,6 @@ data class DoctorItem(
     val specialty: String,
     val patientCount: Int,
     val isOnline: Boolean,
-    val rating: Double,
     val initials: String
 )
 
@@ -121,9 +119,6 @@ fun AdminDashboardScreen(
                             FirebaseService.fetchPatients(userId).size
                         } catch (_: Exception) { 0 }
 
-                        // Mock rating for now (could be fetched from reviews)
-                        val rating = 4.5 + (userId.hashCode() % 5) * 0.1
-
                         doctorList.add(
                             DoctorItem(
                                 id = userId,
@@ -131,7 +126,6 @@ fun AdminDashboardScreen(
                                 specialty = specialty,
                                 patientCount = assignedPatients,
                                 isOnline = isOnline,
-                                rating = rating.coerceIn(4.0, 5.0),
                                 initials = initials
                             )
                         )
@@ -168,25 +162,6 @@ fun AdminDashboardScreen(
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
-        },
-        floatingActionButton = {
-            Column(horizontalAlignment = Alignment.End) {
-                ExtendedFloatingActionButton(
-                    onClick = onAddDoctor,
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    contentColor = DesignTokens.Colors.Success,
-                    icon = { Icon(Icons.Default.Add, contentDescription = "Add Doctor") },
-                    text = { Text("Add Doctor", fontWeight = FontWeight.SemiBold) },
-                    modifier = Modifier.padding(bottom = 12.dp)
-                )
-                FloatingActionButton(
-                    onClick = onAddPatient,
-                    containerColor = DesignTokens.Colors.Primary,
-                    shape = CircleShape
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = "Add Patient", tint = MaterialTheme.colorScheme.onPrimary)
-                }
-            }
         }
     ) { padding ->
         PullToRefreshBox(
@@ -361,7 +336,7 @@ fun AdminDashboardScreen(
                                 Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
                                 Text("No doctors yet", fontWeight = FontWeight.SemiBold)
                                 Spacer(modifier = Modifier.height(DesignTokens.Spacing.XS))
-                                Text("Tap + Add Doctor to add the first one", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("Use the Add Doctor card to add the first one", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
@@ -470,24 +445,6 @@ private fun DoctorCard(doctor: DoctorItem, onClick: () -> Unit) {
                 }
             }
 
-            // Rating
-            Column(horizontalAlignment = Alignment.End) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Default.Star,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint = DesignTokens.Colors.Warning
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        String.format("%.1f", doctor.rating),
-                        fontWeight = FontWeight.SemiBold,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = DesignTokens.Colors.Warning
-                    )
-                }
-            }
         }
     }
 }

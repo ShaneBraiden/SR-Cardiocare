@@ -12,7 +12,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.People
@@ -82,8 +81,6 @@ private fun formatWorkoutDate(epochMs: Long?): String {
 fun DoctorDashboardScreen(
     onPatientTap: (String) -> Unit,
     onDoctorTap: (String) -> Unit,
-    onAddPatient: () -> Unit,
-    onAddDoctor: () -> Unit,
     onExerciseLibrary: () -> Unit,
     onSchedule: () -> Unit,
     onProfile: () -> Unit = {},
@@ -314,28 +311,7 @@ fun DoctorDashboardScreen(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         },
-        containerColor = MaterialTheme.colorScheme.background,
-        floatingActionButton = {
-            Column(horizontalAlignment = Alignment.End) {
-                if (userRole == "admin") {
-                    ExtendedFloatingActionButton(
-                        onClick = onAddDoctor,
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        contentColor = DesignTokens.Colors.Primary,
-                        icon = { Icon(Icons.Default.Add, contentDescription = "Add Doctor") },
-                        text = { Text("Add Doctor", fontWeight = FontWeight.SemiBold) },
-                        modifier = Modifier.padding(bottom = 12.dp)
-                    )
-                }
-                FloatingActionButton(
-                    onClick = onAddPatient,
-                    containerColor = DesignTokens.Colors.Primary,
-                    shape = CircleShape
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = "Add Patient", tint = MaterialTheme.colorScheme.onPrimary)
-                }
-            }
-        }
+        containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
         PullToRefreshBox(
             isRefreshing = isRefreshing,

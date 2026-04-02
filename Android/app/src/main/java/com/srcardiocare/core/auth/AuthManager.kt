@@ -20,16 +20,11 @@ class AuthManager(context: Context) {
 
     companion object {
         private const val KEY_USER_ROLE = "user_role"
-        private const val KEY_ONBOARDING_COMPLETED = "onboarding_completed"
     }
 
     var userRole: String?
         get() = prefs.getString(KEY_USER_ROLE, null)
         set(value) = prefs.edit().putString(KEY_USER_ROLE, value).apply()
-
-    var onboardingCompleted: Boolean
-        get() = prefs.getBoolean(KEY_ONBOARDING_COMPLETED, false)
-        set(value) = prefs.edit().putBoolean(KEY_ONBOARDING_COMPLETED, value).apply()
 
     val isLoggedIn: Boolean get() = auth.currentUser != null
 

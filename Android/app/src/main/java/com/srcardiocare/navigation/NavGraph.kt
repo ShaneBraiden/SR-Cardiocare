@@ -101,6 +101,9 @@ sealed class Route(val path: String) {
         fun createPath(assignmentId: String, sessionNumber: Int) = 
             "patient/assignment-workout/$assignmentId/$sessionNumber"
     }
+    object PatientHistory : Route("patient/{patientId}/history") {
+        fun createPath(patientId: String) = "patient/$patientId/history"
+    }
     
     // Admin routes for viewing doctor's patients and patient's assignments
     object AdminDoctorPatients : Route("admin/doctor/{doctorId}/patients") {
@@ -135,7 +138,7 @@ fun SRCardiocareNavGraph(
 
         composable(Route.PatientHome.path) {
             PatientHomeScreen(
-                onExerciseTap = { navController.navigate(Route.ExerciseList.path) },
+                onExerciseTap = { navController.navigate(Route.AssignmentList.path) },
                 onScheduleTap = { navController.navigate(Route.Schedule.path) },
                 onAnalyticsTap = { navController.navigate(Route.Analytics.path) },
                 onNotificationsTap = { navController.navigate(Route.Notifications.path) },
@@ -209,8 +212,6 @@ fun SRCardiocareNavGraph(
             DoctorDashboardScreen(
                 onPatientTap = { id -> navController.navigate("doctor/patient/$id") },
                 onDoctorTap = { id -> navController.navigate("admin/doctor/$id") },
-                onAddPatient = { navController.navigate(Route.AddPatient.path) },
-                onAddDoctor = { navController.navigate(Route.AddDoctor.path) },
                 onExerciseLibrary = { navController.navigate(Route.ExerciseLibrary.path) },
                 onSchedule = { navController.navigate(Route.Schedule.path) },
                 onProfile = { navController.navigate(Route.DoctorProfile.path) },
@@ -235,8 +236,6 @@ fun SRCardiocareNavGraph(
             PatientListScreen(
                 onPatientTap = { id -> navController.navigate("doctor/patient/$id") },
                 onDoctorTap = { id -> navController.navigate("admin/doctor/$id") },
-                onAddPatient = { navController.navigate(Route.AddPatient.path) },
-                onAddDoctor = { navController.navigate(Route.AddDoctor.path) },
                 onBack = { navController.popBackStack() }
             )
         }
@@ -273,12 +272,21 @@ fun SRCardiocareNavGraph(
             )
         }
 
+        composable(Route.PatientHistory.path) { backStackEntry ->
+            val patientId = backStackEntry.arguments?.getString("patientId") ?: ""
+            com.srcardiocare.ui.screens.patient.PatientHistoryScreen(
+                patientId = patientId,
+                onBack = { navController.popBackStack() }
+            )
+        }
+
         composable(Route.PatientProfile.path) { backStackEntry ->
             val patientId = backStackEntry.arguments?.getString("patientId") ?: ""
             PatientProfileScreen(
                 patientId = patientId,
                 onBack = { navController.popBackStack() },
-                onVideoUpload = { navController.navigate(Route.VideoUpload.path) }
+                onVideoUpload = { navController.navigate(Route.VideoUpload.path) },
+                onHistoryTap = { navController.navigate(Route.PatientHistory.createPath(patientId)) }
             )
         }
 
@@ -363,6 +371,12 @@ fun SRCardiocareNavGraph(
                 onExerciseTap = { assignment, sessionNumber ->
                     navController.navigate(Route.AssignmentWorkout.createPath(assignment.id, sessionNumber))
                 },
+                onHistoryTap = {
+                    val uid = com.srcardiocare.data.firebase.FirebaseService.currentUID
+                    if (uid != null) {
+                        navController.navigate(Route.PatientHistory.createPath(uid))
+                    }
+                },
                 onBack = { navController.popBackStack() }
             )
         }
@@ -405,7 +419,9 @@ fun SRCardiocareNavGraph(
                     assignment = assignment!!,
                     sessionNumber = sessionNumber,
                     onComplete = {
-                        navController.popBackStack()
+                        navController.navigate(Route.PostWorkoutFeedback.path) {
+                            popUpTo(Route.AssignmentList.path)
+                        }
                     },
                     onBack = { navController.popBackStack() }
                 )
