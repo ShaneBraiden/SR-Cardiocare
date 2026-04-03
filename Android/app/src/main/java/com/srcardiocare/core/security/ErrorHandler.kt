@@ -21,6 +21,8 @@ object ErrorHandler {
         "network-request-failed" to "Network error. Please check your connection",
         "too-many-requests" to "Too many attempts. Please try again later",
         "user-disabled" to "This account has been disabled",
+        "blocked by admin" to "Your account has been blocked by admin",
+        "account access has been blocked" to "Your account has been blocked by admin",
         "invalid-email" to "Please enter a valid email address",
         "permission-denied" to "You don't have permission to perform this action",
         "unavailable" to "Service temporarily unavailable. Please try again",

@@ -33,6 +33,7 @@ import com.srcardiocare.ui.screens.workout.WorkoutPlayerScreen
 import com.srcardiocare.ui.screens.feedback.PostWorkoutFeedbackScreen
 import com.srcardiocare.ui.screens.doctor.DoctorDashboardScreen
 import com.srcardiocare.ui.screens.doctor.AdminDashboardScreen
+import com.srcardiocare.ui.screens.doctor.AdminLoginLogsScreen
 import com.srcardiocare.ui.screens.doctor.AddPatientScreen
 import com.srcardiocare.ui.screens.doctor.PatientProfileScreen
 import com.srcardiocare.ui.screens.doctor.AdminDoctorPatientsScreen
@@ -75,11 +76,13 @@ sealed class Route(val path: String) {
     object PostWorkoutFeedback : Route("workout/feedback")
     object DoctorDashboard : Route("doctor/dashboard")
     object AdminDashboard : Route("admin/dashboard")
+    object AdminSettings : Route("admin/settings")
     object FeedbackDashboard : Route("doctor/feedback")
     object AddPatient : Route("doctor/add-patient")
     object AddDoctor : Route("doctor/add-doctor")
     object PatientProfile : Route("doctor/patient/{patientId}")
     object AdminDoctorProfile : Route("admin/doctor/{doctorId}")
+    object AdminLoginLogs : Route("admin/login-logs")
     object ExerciseLibrary : Route("exercises/library")
     object VideoUpload : Route("exercises/upload")
     object Schedule : Route("schedule")
@@ -223,12 +226,21 @@ fun SRCardiocareNavGraph(
         composable(Route.AdminDashboard.path) {
             AdminDashboardScreen(
                 onDoctorTap = { id -> navController.navigate(Route.AdminDoctorPatients.createPath(id)) },
-                onPatientTap = { id -> navController.navigate(Route.AdminPatientAssignments.createPath(id)) },
                 onAddDoctor = { navController.navigate(Route.AddDoctor.path) },
                 onAddPatient = { navController.navigate(Route.AddPatient.path) },
                 onUserList = { navController.navigate(Route.PatientList.path) },
-                onSettings = { },
-                onProfile = { navController.navigate(Route.DoctorProfile.path) }
+                onChatMonitor = { navController.navigate(Route.FeedbackDashboard.path) },
+                onLoginLogs = { navController.navigate(Route.AdminLoginLogs.path) },
+                onSettings = {
+                    navController.navigate(Route.AdminSettings.path) {
+                        launchSingleTop = true
+                    }
+                },
+                onProfile = {
+                    navController.navigate(Route.AdminSettings.path) {
+                        launchSingleTop = true
+                    }
+                }
             )
         }
 
@@ -243,6 +255,12 @@ fun SRCardiocareNavGraph(
         composable(Route.FeedbackDashboard.path) {
             com.srcardiocare.ui.screens.doctor.FeedbackDashboardScreen(
                 onPatientTap = { id -> navController.navigate(Route.PatientFeedbackChat.createPath(id)) },
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Route.AdminLoginLogs.path) {
+            AdminLoginLogsScreen(
                 onBack = { navController.popBackStack() }
             )
         }
@@ -332,6 +350,18 @@ fun SRCardiocareNavGraph(
         }
 
         composable(Route.DoctorProfile.path) {
+            DoctorProfileScreen(
+                onBack = { navController.popBackStack() },
+                onLogout = {
+                    navController.navigate(Route.Login.path) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                },
+                onChangePassword = { navController.navigate(Route.ChangePassword.path) }
+            )
+        }
+
+        composable(Route.AdminSettings.path) {
             DoctorProfileScreen(
                 onBack = { navController.popBackStack() },
                 onLogout = {
@@ -509,6 +539,19 @@ private fun CurrentUserDocGuard(navController: NavHostController) {
                     navController.navigate(Route.Login.path) {
                         popUpTo(0) { inclusive = true }
                         launchSingleTop = true
+                    }
+                    return@addSnapshotListener
+                }
+
+                if (snapshot != null && snapshot.exists()) {
+                    val isBlocked = snapshot.getBoolean("isBlocked") == true
+                    if (isBlocked) {
+                        redirected = true
+                        AuthManager(context).clearAll()
+                        navController.navigate(Route.Login.path) {
+                            popUpTo(0) { inclusive = true }
+                            launchSingleTop = true
+                        }
                     }
                 }
             }

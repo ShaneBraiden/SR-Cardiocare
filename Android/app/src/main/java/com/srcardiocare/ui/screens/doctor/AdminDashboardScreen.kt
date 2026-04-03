@@ -11,6 +11,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Forum
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LocalHospital
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Person
@@ -49,17 +51,19 @@ data class DoctorItem(
 @Composable
 fun AdminDashboardScreen(
     onDoctorTap: (String) -> Unit,
-    onPatientTap: (String) -> Unit,
     onAddDoctor: () -> Unit,
     onAddPatient: () -> Unit,
     onUserList: () -> Unit,
-    onSettings: () -> Unit = {},
+    onChatMonitor: () -> Unit,
+    onLoginLogs: () -> Unit,
+    onSettings: () -> Unit,
     onProfile: () -> Unit = {}
 ) {
     var doctors by remember { mutableStateOf<List<DoctorItem>>(emptyList()) }
     var totalPatients by remember { mutableStateOf(0) }
     var totalUsers by remember { mutableStateOf(0) }
     var onlineCount by remember { mutableStateOf(0) }
+    var blockedCount by remember { mutableStateOf(0) }
     var isLoading by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
     var adminName by remember { mutableStateOf("") }
@@ -87,10 +91,12 @@ fun AdminDashboardScreen(
 
             var patientCounter = 0
             var onlineCounter = 0
+            var blockedCounter = 0
             val doctorList = mutableListOf<DoctorItem>()
 
             for ((userId, data) in allUsers) {
                 val role = (data["role"] as? String)?.lowercase() ?: "patient"
+                val isBlocked = data["isBlocked"] as? Boolean ?: false
 
                 // Check online status
                 val lastSeenRaw = data["lastSeen"]
@@ -105,6 +111,7 @@ fun AdminDashboardScreen(
                 } catch (_: Exception) { false }
 
                 if (isOnline) onlineCounter++
+                if (isBlocked) blockedCounter++
 
                 when (role) {
                     "patient" -> patientCounter++
@@ -136,6 +143,7 @@ fun AdminDashboardScreen(
             doctors = doctorList
             totalPatients = patientCounter
             onlineCount = onlineCounter
+            blockedCount = blockedCounter
             errorMessage = null
         } catch (e: Exception) {
             errorMessage = e.message ?: "Failed to load data"
@@ -203,6 +211,7 @@ fun AdminDashboardScreen(
                                 StatItem(value = doctors.size.toString(), label = "Doctors", style = StatItemStyle.LIGHT)
                                 StatItem(value = totalPatients.toString(), label = "Patients", style = StatItemStyle.LIGHT)
                                 StatItem(value = onlineCount.toString(), label = "Online", style = StatItemStyle.LIGHT)
+                                StatItem(value = blockedCount.toString(), label = "Blocked", style = StatItemStyle.LIGHT)
                             }
                         }
                         Spacer(modifier = Modifier.height(DesignTokens.Spacing.LG))
@@ -243,6 +252,32 @@ fun AdminDashboardScreen(
                             title = "Profile",
                             subtitle = "Your account",
                             onClick = onProfile
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(DesignTokens.Spacing.LG))
+                }
+
+                // Chat + logs monitoring actions
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = DesignTokens.Spacing.XL),
+                        horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.MD)
+                    ) {
+                        QuickActionCard(
+                            modifier = Modifier.weight(1f),
+                            icon = Icons.Default.Forum,
+                            title = "Chat Monitor",
+                            subtitle = "View all patient chats",
+                            onClick = onChatMonitor
+                        )
+                        QuickActionCard(
+                            modifier = Modifier.weight(1f),
+                            icon = Icons.Default.History,
+                            title = "Login Logs",
+                            subtitle = "Audit sign-ins",
+                            onClick = onLoginLogs
                         )
                     }
                     Spacer(modifier = Modifier.height(DesignTokens.Spacing.LG))

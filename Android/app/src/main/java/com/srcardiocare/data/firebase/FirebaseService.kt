@@ -12,6 +12,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.SetOptions
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.storageMetadata
 import kotlinx.coroutines.tasks.await
@@ -22,6 +23,12 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
+
+data class AccessControlSettings(
+    val sessionLocksEnabled: Boolean = true,
+    val blockAllPatients: Boolean = false,
+    val blockAllDoctors: Boolean = false
+)
 
 /**
  * Central service for all Firebase operations.
@@ -43,11 +50,71 @@ object FirebaseService {
     // ── Auth ────────────────────────────────────────────────────────────
 
     suspend fun login(email: String, password: String): Map<String, Any?> {
-        val result = auth.signInWithEmailAndPassword(email, password).await()
-        val uid = result.user?.uid ?: throw Exception("Login failed: no user")
-        // Update last seen on login
-        updateLastSeen()
-        return fetchUser(uid)
+        var loginHandled = false
+        var attemptedUid: String? = null
+        val normalizedEmail = email.trim().lowercase()
+
+        try {
+            val result = auth.signInWithEmailAndPassword(normalizedEmail, password).await()
+            val uid = result.user?.uid ?: throw Exception("Login failed: no user")
+            attemptedUid = uid
+
+            val userData = fetchUser(uid)
+            val role = (userData["role"] as? String ?: "").lowercase()
+            val isBlocked = userData["isBlocked"] as? Boolean ?: false
+
+            if (isBlocked) {
+                auth.signOut()
+                recordLoginLog(
+                    userId = uid,
+                    email = normalizedEmail,
+                    role = role,
+                    status = "blocked",
+                    message = "Blocked by admin"
+                )
+                loginHandled = true
+                throw Exception("Your account access has been blocked by admin. Please contact support.")
+            }
+
+            val accessSettings = fetchAccessControlSettings()
+            val roleBlockedByPolicy = (role == "patient" && accessSettings.blockAllPatients) ||
+                (role == "doctor" && accessSettings.blockAllDoctors)
+            if (roleBlockedByPolicy) {
+                auth.signOut()
+                recordLoginLog(
+                    userId = uid,
+                    email = normalizedEmail,
+                    role = role,
+                    status = "blocked",
+                    message = "Blocked by admin policy"
+                )
+                loginHandled = true
+                throw Exception("Your account access is temporarily blocked by admin settings.")
+            }
+
+            // Update last seen on login
+            updateLastSeen()
+            recordLoginLog(
+                userId = uid,
+                email = normalizedEmail,
+                role = role,
+                status = "success",
+                message = null
+            )
+            loginHandled = true
+            return userData
+        } catch (e: Exception) {
+            if (!loginHandled) {
+                recordLoginLog(
+                    userId = attemptedUid,
+                    email = normalizedEmail,
+                    role = null,
+                    status = "failed",
+                    message = e.message
+                )
+            }
+            throw e
+        }
     }
 
     suspend fun register(
@@ -71,6 +138,8 @@ object FirebaseService {
             "firstName" to firstName,
             "lastName" to lastName,
             "role" to role,
+            "isBlocked" to false,
+            "apiAccessBlocked" to false,
             "phone" to null,
             "profileImageUrl" to null,
             "createdAt" to FieldValue.serverTimestamp()
@@ -122,6 +191,8 @@ object FirebaseService {
                 "firstName" to firstName,
                 "lastName" to lastName,
                 "role" to role,
+                "isBlocked" to false,
+                "apiAccessBlocked" to false,
                 "phone" to null,
                 "profileImageUrl" to null,
                 "createdAt" to FieldValue.serverTimestamp()
@@ -169,6 +240,35 @@ object FirebaseService {
         db.collection("users").document(uid).update(fields).await()
     }
 
+    /**
+     * Block or unblock a user from app/API access.
+     * When blocked, login is denied and active sessions are forced out by the doc guard.
+     */
+    suspend fun setUserAccessBlocked(
+        uid: String,
+        blocked: Boolean,
+        reason: String? = null
+    ) {
+        val actorId = currentUID
+        val updates = mutableMapOf<String, Any?>(
+            "isBlocked" to blocked,
+            "apiAccessBlocked" to blocked,
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+
+        if (blocked) {
+            updates["blockedAt"] = FieldValue.serverTimestamp()
+            updates["blockedBy"] = actorId
+            updates["blockReason"] = reason?.trim().orEmpty()
+        } else {
+            updates["blockedAt"] = null
+            updates["blockedBy"] = null
+            updates["blockReason"] = null
+        }
+
+        db.collection("users").document(uid).set(updates, SetOptions.merge()).await()
+    }
+
     /** Delete a user's Firestore document (for admin). Note: Auth account must be deleted via Admin SDK. */
     suspend fun deleteUser(uid: String) {
         db.collection("users").document(uid).delete().await()
@@ -196,6 +296,16 @@ object FirebaseService {
     /** Fetch ALL users regardless of role (for admin role). */
     suspend fun fetchAllUsers(): List<Pair<String, Map<String, Any?>>> {
         val snapshot = db.collection("users").get().await()
+        return snapshot.documents.map { it.id to (it.data ?: emptyMap()) }
+    }
+
+    /** Fetch recent login logs (admin). */
+    suspend fun fetchLoginLogs(limit: Int = 150): List<Pair<String, Map<String, Any?>>> {
+        val safeLimit = limit.coerceIn(20, 500).toLong()
+        val snapshot = db.collection("loginLogs")
+            .orderBy("createdAt", Query.Direction.DESCENDING)
+            .limit(safeLimit)
+            .get().await()
         return snapshot.documents.map { it.id to (it.data ?: emptyMap()) }
     }
 
@@ -709,6 +819,31 @@ object FirebaseService {
         }
     }
 
+    private suspend fun recordLoginLog(
+        userId: String?,
+        email: String,
+        role: String?,
+        status: String,
+        message: String?
+    ) {
+        try {
+            val ref = db.collection("loginLogs").document()
+            val payload = mutableMapOf<String, Any?>(
+                "id" to ref.id,
+                "userId" to userId,
+                "email" to email,
+                "role" to role,
+                "status" to status,
+                "message" to message,
+                "platform" to "android",
+                "createdAt" to FieldValue.serverTimestamp()
+            )
+            ref.set(payload).await()
+        } catch (_: Exception) {
+            // Logging must never block auth flow.
+        }
+    }
+
     private fun isMissingIndexError(e: Exception): Boolean {
         return when (e) {
             is FirebaseFirestoreException -> {
@@ -900,23 +1035,43 @@ object FirebaseService {
 
     // ── Global Settings ──────────────────────────────────────────────────
 
-    suspend fun fetchSessionLocksEnabled(): Boolean {
+    suspend fun fetchAccessControlSettings(): AccessControlSettings {
         return try {
             val doc = db.collection("settings").document("appSettings").get().await()
-            if (doc.exists()) {
-                doc.getBoolean("sessionLocksEnabled") ?: true
-            } else {
-                true
-            }
-        } catch (e: Exception) {
-            true
+            if (!doc.exists()) return AccessControlSettings()
+
+            AccessControlSettings(
+                sessionLocksEnabled = doc.getBoolean("sessionLocksEnabled") ?: true,
+                blockAllPatients = doc.getBoolean("blockAllPatients") ?: false,
+                blockAllDoctors = doc.getBoolean("blockAllDoctors") ?: false
+            )
+        } catch (_: Exception) {
+            AccessControlSettings()
         }
     }
 
-    suspend fun updateSessionLocksEnabled(enabled: Boolean) {
+    suspend fun updateAccessControlSettings(
+        sessionLocksEnabled: Boolean? = null,
+        blockAllPatients: Boolean? = null,
+        blockAllDoctors: Boolean? = null
+    ) {
+        val updates = mutableMapOf<String, Any>()
+        sessionLocksEnabled?.let { updates["sessionLocksEnabled"] = it }
+        blockAllPatients?.let { updates["blockAllPatients"] = it }
+        blockAllDoctors?.let { updates["blockAllDoctors"] = it }
+        if (updates.isEmpty()) return
+
         db.collection("settings").document("appSettings")
-            .set(mapOf("sessionLocksEnabled" to enabled), com.google.firebase.firestore.SetOptions.merge())
+            .set(updates, SetOptions.merge())
             .await()
+    }
+
+    suspend fun fetchSessionLocksEnabled(): Boolean {
+        return fetchAccessControlSettings().sessionLocksEnabled
+    }
+
+    suspend fun updateSessionLocksEnabled(enabled: Boolean) {
+        updateAccessControlSettings(sessionLocksEnabled = enabled)
     }
 
     // ═══════════════════════════════════════════════════════════════════════════

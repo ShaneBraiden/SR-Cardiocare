@@ -93,6 +93,7 @@ fun PatientListScreen(
                 val role = (data["role"] as? String)?.lowercase() ?: "patient"
                 if (userRole != "admin" && role != "patient") return@mapNotNull null
                 if (id == uid) return@mapNotNull null
+                val isBlocked = data["isBlocked"] as? Boolean ?: false
 
                 val firstName = data["firstName"] as? String ?: ""
                 val lastName = data["lastName"] as? String ?: ""
@@ -120,7 +121,7 @@ fun PatientListScreen(
                     "admin" -> "Administrator"
                     "doctor" -> data["speciality"] as? String ?: "Doctor"
                     else -> (data["injuries"] as? List<*>)?.firstOrNull()?.toString() ?: data["primaryGoal"] as? String ?: "Patient"
-                }
+                } + if (isBlocked) " • Blocked" else ""
 
                 UserItem(id, name, subtitle, role, status, isOnline, initials)
             }

@@ -210,7 +210,7 @@ fun AddPatientScreen(onSaved: () -> Unit, onBack: () -> Unit) {
                     val nameParts = nameValidation.sanitizedValue.split(" ", limit = 2)
                     val firstName = nameParts.firstOrNull() ?: ""
                     val lastName = if (nameParts.size > 1) nameParts[1] else ""
-                    val creatingDoctorUid = FirebaseService.currentUID
+                    val creatingUserUid = FirebaseService.currentUID
 
                     scope.launch {
                         try {
@@ -239,8 +239,11 @@ fun AddPatientScreen(onSaved: () -> Unit, onBack: () -> Unit) {
                             }
                             extraFields["gender"] = genders[selectedGender]
                             if (notes.isNotBlank()) extraFields["notes"] = notes.trim()
-                            if (creatingDoctorUid != null) {
-                                extraFields["assignedDoctorId"] = creatingDoctorUid
+                            if (creatingUserUid != null) {
+                                val creatorRole = (FirebaseService.fetchUser(creatingUserUid)["role"] as? String ?: "").lowercase()
+                                if (creatorRole == "doctor") {
+                                    extraFields["assignedDoctorId"] = creatingUserUid
+                                }
                             }
                             // Flag for first login password change prompt
                             extraFields["mustChangePassword"] = true

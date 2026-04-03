@@ -41,7 +41,8 @@ class MainActivity : ComponentActivity() {
                     val auth = (application as SRCardiocareApp).awaitAuth()
                     startDest = when {
                         !auth.isLoggedIn                              -> Route.Login.path
-                        auth.userRole in listOf("DOCTOR", "ADMIN")    -> Route.DoctorDashboard.path
+                        auth.userRole == "ADMIN"                       -> Route.AdminDashboard.path
+                        auth.userRole == "DOCTOR"                      -> Route.DoctorDashboard.path
                         else                                          -> Route.PatientHome.path
                     }
                 }

@@ -34,13 +34,21 @@ fun FeedbackDashboardScreen(
     onBack: () -> Unit
 ) {
     var patients by remember { mutableStateOf<List<ChatPatientItem>>(emptyList()) }
+    var userRole by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         try {
             val uid = FirebaseService.currentUID ?: return@LaunchedEffect
-            val fetched = FirebaseService.fetchPatients(uid)
+            val me = FirebaseService.fetchUser(uid)
+            userRole = (me["role"] as? String ?: "").lowercase()
+
+            val fetched = if (userRole == "admin") {
+                FirebaseService.fetchAllPatients()
+            } else {
+                FirebaseService.fetchPatients(uid)
+            }
             patients = fetched.map { (id, data) ->
                 val fName = data["firstName"] as? String ?: ""
                 val lName = data["lastName"] as? String ?: ""
@@ -56,7 +64,12 @@ fun FeedbackDashboardScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Select Patient", fontWeight = FontWeight.Bold) },
+                title = {
+                    Text(
+                        if (userRole == "admin") "All Patient Chats" else "Select Patient",
+                        fontWeight = FontWeight.Bold
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -85,7 +98,11 @@ fun FeedbackDashboardScreen(
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text("No patients assigned", fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+                    Text(
+                        if (userRole == "admin") "No patient chats available" else "No patients assigned",
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
                 }
             }
         } else {
