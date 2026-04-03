@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Network Security Configuration for SRCardiocare
+    
+    This configuration enforces HTTPS-only communication in production.
+    All cleartext (HTTP) traffic is blocked by default.
+    
+    Reference: https://developer.android.com/training/articles/security-config
+-->
+<network-security-config>
+
+    <!-- Base configuration: Block all cleartext traffic -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <!-- Trust only system CAs in production -->
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!--
+        Domain-specific configuration (if needed in the future)
+        
+        Example: To allow cleartext for a local development server:
+        <domain-config cleartextTrafficPermitted="true">
+            <domain includeSubdomains="true">10.0.2.2</domain>
+        </domain-config>
+        
+        Example: Certificate pinning for your API server:
+        <domain-config>
+            <domain includeSubdomains="true">your-api.example.com</domain>
+            <pin-set expiration="2027-01-01">
+                <pin digest="SHA-256">BASE64_ENCODED_PUBLIC_KEY_HASH</pin>
+                <pin digest="SHA-256">BACKUP_PUBLIC_KEY_HASH</pin>
+            </pin-set>
+        </domain-config>
+    -->
+
+    <!--
+        Debug override: Allow user-installed CAs for debugging with tools like
+        Charles Proxy or mitmproxy (only in debug builds)
+    -->
+    <debug-overrides>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </debug-overrides>
+
+</network-security-config>
