@@ -201,7 +201,11 @@ fun AssignmentWorkoutScreen(
                                 videoWatchedSeconds = videoWatchedSeconds,
                                 repsCompleted = assignment.reps
                             )
-                        } catch (_: Exception) {}
+                        } catch (e: com.srcardiocare.data.firebase.RateLimitExceededException) {
+                            errorMessage = "Rate limit: ${e.message}"
+                        } catch (_: Exception) {
+                            // Silent fail for other errors
+                        }
                     }
                     
                     // Reset for next set
@@ -229,6 +233,11 @@ fun AssignmentWorkoutScreen(
                                 repsCompleted = assignment.reps
                             )
                             FirebaseService.abandonSession(id)
+                        } catch (e: com.srcardiocare.data.firebase.RateLimitExceededException) {
+                            // Still try to abandon session even if logging failed
+                            try {
+                                FirebaseService.abandonSession(id)
+                            } catch (_: Exception) {}
                         } catch (_: Exception) {}
                     }
                     onBack()

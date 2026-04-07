@@ -24,11 +24,48 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
 
+/**
+ * Exception thrown when a rate limit is exceeded.
+ */
+class RateLimitExceededException(message: String) : Exception(message)
+
 data class AccessControlSettings(
     val sessionLocksEnabled: Boolean = true,
     val blockAllPatients: Boolean = false,
     val blockAllDoctors: Boolean = false
 )
+
+/**
+ * Rate limiter for tracking method call frequency.
+ * Thread-safe implementation for concurrent access.
+ */
+private data class RateLimitBucket(
+    val timestamps: MutableList<Long> = mutableListOf(),
+    val maxCalls: Int,
+    val windowMillis: Long
+) {
+    @Synchronized
+    fun allowRequest(): Boolean {
+        val now = System.currentTimeMillis()
+        // Remove timestamps outside the time window
+        timestamps.removeAll { it < now - windowMillis }
+        
+        return if (timestamps.size < maxCalls) {
+            timestamps.add(now)
+            true
+        } else {
+            false
+        }
+    }
+    
+    @Synchronized
+    fun getNextAllowedTime(): Long {
+        if (timestamps.isEmpty()) return 0
+        val now = System.currentTimeMillis()
+        val oldestTimestamp = timestamps.minOrNull() ?: return 0
+        return maxOf(0, (oldestTimestamp + windowMillis) - now)
+    }
+}
 
 /**
  * Central service for all Firebase operations.
@@ -41,6 +78,11 @@ object FirebaseService {
     private val auth = FirebaseAuth.getInstance()
     private val db = FirebaseFirestore.getInstance()
     private val storage = FirebaseStorage.getInstance()
+    
+    // Rate limiting: 5 logSetCompletion calls per 15 minutes per session
+    private val setCompletionRateLimiters = mutableMapOf<String, RateLimitBucket>()
+    private const val SET_COMPLETION_MAX_CALLS = 5
+    private const val SET_COMPLETION_WINDOW_MS = 15 * 60 * 1000L // 15 minutes
 
     // ── Auth State ──────────────────────────────────────────────────────
 
@@ -1162,6 +1204,9 @@ object FirebaseService {
 
     /**
      * Log completion of a single set within a session.
+     * 
+     * **Rate Limited:** 5 calls per 15 minutes per session to prevent abuse.
+     * Throws RateLimitExceededException if limit is exceeded.
      */
     suspend fun logSetCompletion(
         sessionId: String,
@@ -1169,6 +1214,26 @@ object FirebaseService {
         videoWatchedSeconds: Int,
         repsCompleted: Int?
     ) {
+        // Rate limiting check
+        val bucket = synchronized(setCompletionRateLimiters) {
+            setCompletionRateLimiters.getOrPut(sessionId) {
+                RateLimitBucket(
+                    maxCalls = SET_COMPLETION_MAX_CALLS,
+                    windowMillis = SET_COMPLETION_WINDOW_MS
+                )
+            }
+        }
+        
+        if (!bucket.allowRequest()) {
+            val waitTimeMs = bucket.getNextAllowedTime()
+            val waitMinutes = (waitTimeMs / 60000.0).toInt()
+            throw RateLimitExceededException(
+                "Rate limit exceeded for logSetCompletion. " +
+                "Maximum $SET_COMPLETION_MAX_CALLS calls per 15 minutes. " +
+                "Please wait $waitMinutes minute(s) before trying again."
+            )
+        }
+        
         val now = java.time.Instant.now().toString()
         val setLog = hashMapOf<String, Any?>(
             "setNumber" to setNumber,
@@ -1186,6 +1251,7 @@ object FirebaseService {
 
     /**
      * Complete a session (all sets done, user clicked Complete).
+     * Cleans up rate limiter for this session.
      */
     suspend fun completeSession(sessionId: String, feedbackId: String? = null) {
         db.collection("sessionLogs").document(sessionId).update(
@@ -1195,10 +1261,14 @@ object FirebaseService {
                 "feedbackId" to feedbackId
             )
         ).await()
+        
+        // Clean up rate limiter for completed session
+        cleanupRateLimiter(sessionId)
     }
 
     /**
      * Mark a session as abandoned (started but not finished).
+     * Cleans up rate limiter for this session.
      */
     suspend fun abandonSession(sessionId: String) {
         db.collection("sessionLogs").document(sessionId).update(
@@ -1207,6 +1277,18 @@ object FirebaseService {
                 "completedAt" to FieldValue.serverTimestamp()
             )
         ).await()
+        
+        // Clean up rate limiter for abandoned session
+        cleanupRateLimiter(sessionId)
+    }
+    
+    /**
+     * Clean up rate limiter bucket for a session to prevent memory leaks.
+     */
+    private fun cleanupRateLimiter(sessionId: String) {
+        synchronized(setCompletionRateLimiters) {
+            setCompletionRateLimiters.remove(sessionId)
+        }
     }
 
     /**
