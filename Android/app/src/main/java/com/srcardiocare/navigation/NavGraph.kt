@@ -24,9 +24,11 @@ import androidx.navigation.navArgument
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.srcardiocare.core.auth.AuthManager
+import com.srcardiocare.core.security.SecurePreferences
 import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.ui.screens.auth.LoginScreen
 import com.srcardiocare.ui.screens.auth.ChangePasswordScreen
+import com.srcardiocare.ui.screens.onboarding.OnboardingScreen
 import com.srcardiocare.ui.screens.patient.PatientHomeScreen
 import com.srcardiocare.ui.screens.patient.PatientProfileSelfScreen
 import com.srcardiocare.ui.screens.workout.WorkoutPlayerScreen
@@ -53,6 +55,7 @@ import com.srcardiocare.data.model.Assignment
  * Central navigation graph. All routes use sealed class [Route].
  */
 sealed class Route(val path: String) {
+    object Onboarding : Route("onboarding")
     object Login : Route("login")
     object PatientHome : Route("patient/home")
     object WorkoutPlayer : Route("workout/player?name={name}&videoUrl={videoUrl}&sets={sets}&reps={reps}&instructions={instructions}&planId={planId}&totalCount={totalCount}&isLastExercise={isLastExercise}") {
@@ -125,13 +128,38 @@ fun SRCardiocareNavGraph(
     CurrentUserDocGuard(navController = navController)
 
     NavHost(navController = navController, startDestination = startDestination) {
-        composable(Route.Login.path) {
-            LoginScreen(
-                onLoginSuccess = { role ->
+        composable(Route.Onboarding.path) {
+            val context = LocalContext.current
+            OnboardingScreen(
+                onFinish = {
+                    // Mark onboarding as seen — never show again on this device
+                    SecurePreferences.getInstance(context)
+                        .edit().putBoolean("onboarding_seen", true).apply()
+                    val role = AuthManager(context).userRole
                     val dest = when (role) {
                         "ADMIN" -> Route.AdminDashboard.path
                         "DOCTOR" -> Route.DoctorDashboard.path
                         else -> Route.PatientHome.path
+                    }
+                    navController.navigate(dest) { popUpTo(Route.Onboarding.path) { inclusive = true } }
+                }
+            )
+        }
+
+        composable(Route.Login.path) {
+            val context = LocalContext.current
+            LoginScreen(
+                onLoginSuccess = { role ->
+                    val hasSeenOnboarding = SecurePreferences.getInstance(context)
+                        .getBoolean("onboarding_seen", false)
+                    val dest = if (!hasSeenOnboarding) {
+                        Route.Onboarding.path
+                    } else {
+                        when (role) {
+                            "ADMIN" -> Route.AdminDashboard.path
+                            "DOCTOR" -> Route.DoctorDashboard.path
+                            else -> Route.PatientHome.path
+                        }
                     }
                     navController.navigate(dest) { popUpTo(Route.Login.path) { inclusive = true } }
                 },

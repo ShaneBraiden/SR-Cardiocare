@@ -31,8 +31,8 @@ final class AuthManager {
     }
 
     var currentUserRole: UserRole? {
-        // Cached from last login/fetch — stored in UserDefaults for quick access
-        guard let roleString = UserDefaults.standard.string(forKey: "currentUserRole") else { return nil }
+        // Cached from last login/fetch — stored in Keychain for tamper resistance
+        guard let roleString = KeychainHelper.shared.readString(key: .userRole) else { return nil }
         return UserRole(rawValue: roleString)
     }
 
@@ -54,9 +54,9 @@ final class AuthManager {
             throw AuthError.userNotFound
         }
 
-        // Cache role locally
+        // Cache role in Keychain — tamper-resistant, not accessible to other apps
         if let role = userData["role"] as? String {
-            UserDefaults.standard.set(role, forKey: "currentUserRole")
+            KeychainHelper.shared.save(role, for: .userRole)
         }
 
         return userData
@@ -90,7 +90,7 @@ final class AuthManager {
         ]
         try await db.collection("users").document(uid).setData(userData)
 
-        UserDefaults.standard.set(role.rawValue, forKey: "currentUserRole")
+        KeychainHelper.shared.save(role.rawValue, for: .userRole)
 
         return userData
     }
@@ -103,7 +103,7 @@ final class AuthManager {
         } catch {
             // Best-effort sign out
         }
-        UserDefaults.standard.removeObject(forKey: "currentUserRole")
+        KeychainHelper.shared.delete(.userRole)
     }
 
     // MARK: - Auth State Listener

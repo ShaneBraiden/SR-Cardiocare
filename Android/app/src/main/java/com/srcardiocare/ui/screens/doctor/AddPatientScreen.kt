@@ -16,6 +16,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.core.security.InputValidator
+import com.srcardiocare.core.security.PasswordGenerator
 import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
@@ -167,7 +168,7 @@ fun AddPatientScreen(onSaved: () -> Unit, onBack: () -> Unit) {
                 colors = CardDefaults.cardColors(containerColor = DesignTokens.Colors.PrimaryLight.copy(alpha = 0.3f))
             ) {
                 Text(
-                    "Default password: password@123. The patient will be prompted to change it on first login.",
+                    "A secure temporary password will be generated. Share it privately with the patient — they will be prompted to change it on first login.",
                     modifier = Modifier.padding(DesignTokens.Spacing.MD),
                     style = MaterialTheme.typography.bodySmall,
                     color = DesignTokens.Colors.PrimaryDark
@@ -214,13 +215,13 @@ fun AddPatientScreen(onSaved: () -> Unit, onBack: () -> Unit) {
 
                     scope.launch {
                         try {
-                            // Use default password - user can change on first login
-                            val defaultPassword = "password@123"
+                            // Generate a secure random temporary password — user must change on first login
+                            val temporaryPassword = PasswordGenerator.generateTemporaryPassword()
 
                             // Create account WITHOUT switching auth session
                             val newPatientUid = FirebaseService.registerOther(
                                 email = emailValidation.sanitizedValue,
-                                password = defaultPassword,
+                                password = temporaryPassword,
                                 firstName = firstName,
                                 lastName = lastName,
                                 role = "patient"
@@ -254,7 +255,7 @@ fun AddPatientScreen(onSaved: () -> Unit, onBack: () -> Unit) {
                                 .await()
 
                             // Show success and navigate back
-                            snackbarHostState.showSnackbar("Patient account created! Default password: password@123")
+                            snackbarHostState.showSnackbar("Patient account created! Share the temporary password with them securely.")
                             onSaved()
                         } catch (e: Exception) {
                             isLoading = false

@@ -24,6 +24,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.srcardiocare.R
+import com.srcardiocare.core.FCMService
 import com.srcardiocare.core.auth.AuthManager
 import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.data.firebase.FirebaseService
@@ -200,6 +201,9 @@ fun LoginScreen(onLoginSuccess: (role: String) -> Unit, onChangePassword: () -> 
                                 val mustChangePassword = userData["mustChangePassword"] as? Boolean ?: false
                                 val authManager = AuthManager(context)
                                 authManager.userRole = role
+
+                                // Register FCM token so backend can send push notifications to this device
+                                FirebaseService.currentUID?.let { FCMService.saveFcmToken(it) }
 
                                 // Check if user needs to change password
                                 if (mustChangePassword) {

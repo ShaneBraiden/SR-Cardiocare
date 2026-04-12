@@ -65,9 +65,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         _ application: UIApplication,
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
     ) {
-        let tokenString = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
-        print("Device push token: \(tokenString)")
-        // TODO: Send token to backend API
+        // Token registered — do not log the full token as it can be used to target this device
+        // TODO: Send token securely to backend via authenticated API call
     }
 
     func application(

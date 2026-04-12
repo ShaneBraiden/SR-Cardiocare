@@ -6,6 +6,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.pm.ActivityInfo
 import android.net.Uri
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
@@ -494,9 +495,17 @@ private fun YouTubeWebPlayer(html: String, modifier: Modifier = Modifier) {
     AndroidView(
         factory = { context: Context ->
             WebView(context).apply {
-                settings.javaScriptEnabled = true
+                settings.javaScriptEnabled = true  // Required for YouTube IFrame API
                 settings.mediaPlaybackRequiresUserGesture = false
-                webViewClient = WebViewClient()
+                // Restrict navigation to YouTube domains only
+                webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                        val host = request.url.host ?: return true
+                        val allowed = host.endsWith("youtube.com") || host.endsWith("youtu.be") ||
+                            host.endsWith("youtube-nocookie.com") || host.endsWith("ytimg.com")
+                        return !allowed  // true = block, false = allow
+                    }
+                }
                 loadDataWithBaseURL("https://www.youtube.com", html, "text/html", "utf-8", null)
             }
         },
@@ -508,7 +517,8 @@ private fun YouTubeWebPlayer(html: String, modifier: Modifier = Modifier) {
 private fun buildPlayerHtml(videoUrl: String?): String {
     if (videoUrl.isNullOrBlank()) {
         return """
-            <html><body style="margin:0;padding:0;display:flex;align-items:center;justify-content:center;background:#000;color:#fff;font-family:sans-serif;">
+            <html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none';"></head>
+            <body style="margin:0;padding:0;display:flex;align-items:center;justify-content:center;background:#000;color:#fff;font-family:sans-serif;">
               <div>No video available for this exercise.</div>
             </body></html>
         """.trimIndent()
@@ -516,21 +526,35 @@ private fun buildPlayerHtml(videoUrl: String?): String {
 
     val videoId = extractYoutubeVideoId(videoUrl)
     return if (videoId != null) {
+        // Validate ID contains only safe YouTube ID characters before embedding
+        val safeVideoId = videoId.takeIf { it.matches(Regex("[A-Za-z0-9_\\-]{1,20}")) } ?: return buildPlayerHtml(null)
         """
-            <html><body style="margin:0;padding:0;background:#000;">
+            <html>
+            <head>
+              <meta http-equiv="Content-Security-Policy"
+                content="default-src 'none'; frame-src https://www.youtube.com https://www.youtube-nocookie.com; script-src 'none'; style-src 'unsafe-inline';">
+            </head>
+            <body style="margin:0;padding:0;background:#000;">
               <iframe width="100%" height="100%"
-                src="https://www.youtube.com/embed/$videoId?playsinline=1&rel=0"
+                src="https://www.youtube-nocookie.com/embed/$safeVideoId?playsinline=1&rel=0"
                 frameborder="0" allowfullscreen
                 allow="autoplay; encrypted-media; picture-in-picture">
               </iframe>
             </body></html>
         """.trimIndent()
     } else {
-        val escapedUrl = videoUrl.replace("&", "&amp;")
+        // Only allow HTTPS URLs for non-YouTube video sources
+        val encodedUrl = Uri.encode(videoUrl)
+        if (!videoUrl.startsWith("https://")) return buildPlayerHtml(null)
         """
-            <html><body style="margin:0;padding:0;background:#000;">
+            <html>
+            <head>
+              <meta http-equiv="Content-Security-Policy"
+                content="default-src 'none'; media-src https:; style-src 'unsafe-inline';">
+            </head>
+            <body style="margin:0;padding:0;background:#000;">
               <video width="100%" height="100%" controls playsinline>
-                <source src="$escapedUrl" type="video/mp4" />
+                <source src="$encodedUrl" type="video/mp4" />
                 Your browser does not support video playback.
               </video>
             </body></html>

@@ -83,6 +83,33 @@ object FirebaseService {
     private val setCompletionRateLimiters = mutableMapOf<String, RateLimitBucket>()
     private const val SET_COMPLETION_MAX_CALLS = 5
     private const val SET_COMPLETION_WINDOW_MS = 15 * 60 * 1000L // 15 minutes
+    private const val RATE_LIMITER_CLEANUP_THRESHOLD_MS = 60 * 60 * 1000L // 1 hour
+    private var lastRateLimiterCleanup = System.currentTimeMillis()
+    
+    /**
+     * Periodically clean up stale rate limiter buckets to prevent memory leaks.
+     * Called before adding new buckets.
+     */
+    private fun cleanupStaleRateLimiters() {
+        val now = System.currentTimeMillis()
+        if (now - lastRateLimiterCleanup < RATE_LIMITER_CLEANUP_THRESHOLD_MS) return
+        
+        synchronized(setCompletionRateLimiters) {
+            val staleKeys = setCompletionRateLimiters.entries
+                .filter { (_, bucket) -> 
+                    bucket.timestamps.isEmpty() || 
+                    bucket.timestamps.all { it < now - RATE_LIMITER_CLEANUP_THRESHOLD_MS }
+                }
+                .map { it.key }
+            
+            staleKeys.forEach { setCompletionRateLimiters.remove(it) }
+            lastRateLimiterCleanup = now
+            
+            if (staleKeys.isNotEmpty()) {
+                Log.d(TAG, "Cleaned up ${staleKeys.size} stale rate limiter buckets")
+            }
+        }
+    }
 
     // ── Auth State ──────────────────────────────────────────────────────
 
@@ -1214,6 +1241,14 @@ object FirebaseService {
         videoWatchedSeconds: Int,
         repsCompleted: Int?
     ) {
+        // Input validation
+        require(setNumber > 0) { "setNumber must be positive" }
+        require(videoWatchedSeconds in 0..86400) { "videoWatchedSeconds must be 0-86400" }
+        require(repsCompleted == null || repsCompleted > 0) { "repsCompleted must be positive if provided" }
+        
+        // Clean up stale rate limiters periodically
+        cleanupStaleRateLimiters()
+        
         // Rate limiting check
         val bucket = synchronized(setCompletionRateLimiters) {
             setCompletionRateLimiters.getOrPut(sessionId) {
@@ -1234,10 +1269,10 @@ object FirebaseService {
             )
         }
         
-        val now = java.time.Instant.now().toString()
+        // Use server timestamp for consistency with other Firestore operations
         val setLog = hashMapOf<String, Any?>(
             "setNumber" to setNumber,
-            "completedAt" to now,
+            "completedAt" to FieldValue.serverTimestamp(),
             "videoWatchedSeconds" to videoWatchedSeconds,
             "repsCompleted" to repsCompleted
         )

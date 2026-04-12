@@ -51,9 +51,14 @@ object SecurePreferences {
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
             )
         } catch (e: Exception) {
-            // Fallback to regular prefs if encryption fails (e.g., on very old devices)
-            Log.e(TAG, "Failed to create encrypted preferences, using fallback", e)
-            context.getSharedPreferences(ENCRYPTED_PREFS_NAME, Context.MODE_PRIVATE)
+            // SECURITY: Do NOT fall back to unencrypted preferences
+            // This would expose sensitive user data. Instead, throw an exception
+            // so the app fails fast and clearly indicates the security issue.
+            Log.e(TAG, "CRITICAL: Failed to create encrypted preferences", e)
+            throw SecurityException(
+                "Unable to create secure storage. This device may not support " +
+                "the required encryption. Please contact support.", e
+            )
         }
     }
 
