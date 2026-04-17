@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(xargs grep:*)"
+      "Bash(xargs grep:*)",
+      "Bash(./gradlew.bat :app:compileDebugKotlin --quiet)",
+      "Bash(./gradlew.bat :app:compileDebugKotlin)"
     ]
   }
 }

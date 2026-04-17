@@ -35,7 +35,11 @@ import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.ui.components.InAppPopup
 import com.srcardiocare.ui.components.PopupAction
 import com.srcardiocare.ui.components.PopupType
+import com.srcardiocare.ui.components.TourOverlay
+import com.srcardiocare.ui.components.TourStep
 import com.srcardiocare.ui.components.rememberPopupController
+import com.srcardiocare.ui.components.rememberTourState
+import com.srcardiocare.ui.components.tourTarget
 import com.srcardiocare.ui.theme.DesignTokens
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -66,7 +70,49 @@ fun PatientHomeScreen(
     var unreadNotificationCount by remember { mutableIntStateOf(0) }
     var unreadChatCount by remember { mutableIntStateOf(0) }
     var latestPopupNotificationId by remember { mutableStateOf<String?>(null) }
+    var shouldShowTour by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+
+    val tourSteps = remember {
+        listOf(
+            TourStep(
+                key = "progress",
+                title = "Your Daily Progress",
+                body = "This ring shows how many of today's exercises you've completed. It refreshes each day."
+            ),
+            TourStep(
+                key = "exercises",
+                title = "Exercises",
+                body = "Start your assigned workouts here. Your doctor sets these based on your recovery plan."
+            ),
+            TourStep(
+                key = "schedule",
+                title = "Schedule",
+                body = "View upcoming appointments and session reminders for your care plan."
+            ),
+            TourStep(
+                key = "progressCard",
+                title = "Progress Analytics",
+                body = "Track your recovery trends and see stats over time."
+            ),
+            TourStep(
+                key = "messages",
+                title = "Messages",
+                body = "Chat directly with your care team. A red dot means a new reply is waiting."
+            ),
+            TourStep(
+                key = "notifications",
+                title = "Notifications",
+                body = "All reminders, feedback, and alerts land here."
+            ),
+            TourStep(
+                key = "profile",
+                title = "Profile",
+                body = "Manage your account, change your password, or sign out from here."
+            )
+        )
+    }
+    val tour = rememberTourState(steps = tourSteps, active = shouldShowTour)
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -77,6 +123,12 @@ fun PatientHomeScreen(
                         val uid = FirebaseService.currentUID ?: return@launch
                         val userData = FirebaseService.fetchUser(uid)
                         userName = userData["firstName"] as? String ?: ""
+
+                        // First-login tour trigger: fires only if the user has never
+                        // completed (or dismissed) the tour before.
+                        if (!shouldShowTour && userData["hasCompletedOnboarding"] != true) {
+                            shouldShowTour = true
+                        }
 
                         FirebaseService.updateLastSeen()
 
@@ -263,7 +315,8 @@ fun PatientHomeScreen(
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = DesignTokens.Spacing.XL),
+                        .padding(horizontal = DesignTokens.Spacing.XL)
+                        .tourTarget(tour, "progress"),
                     shape = RoundedCornerShape(DesignTokens.Radius.XL),
                     colors = CardDefaults.cardColors(containerColor = DesignTokens.Colors.Primary)
                 ) {
@@ -314,7 +367,7 @@ fun PatientHomeScreen(
                     horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.MD)
                 ) {
                     DashboardCard(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).tourTarget(tour, "exercises"),
                         icon = Icons.Default.FitnessCenter,
                         title = "Exercises",
                         subtitle = "$totalCount assigned",
@@ -322,7 +375,7 @@ fun PatientHomeScreen(
                         onClick = onExerciseTap
                     )
                     DashboardCard(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).tourTarget(tour, "schedule"),
                         icon = Icons.Default.CalendarMonth,
                         title = "Schedule",
                         subtitle = "View appointments",
@@ -341,14 +394,14 @@ fun PatientHomeScreen(
                     horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.MD)
                 ) {
                     DashboardCard(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).tourTarget(tour, "progressCard"),
                         icon = Icons.Default.Insights,
                         title = "Progress",
                         subtitle = "Track your stats",
                         onClick = onAnalyticsTap
                     )
                     DashboardCard(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).tourTarget(tour, "messages"),
                         icon = Icons.Default.ChatBubble,
                         title = "Messages",
                         subtitle = "Chat with doctor",
@@ -368,7 +421,7 @@ fun PatientHomeScreen(
                     horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.MD)
                 ) {
                     DashboardCard(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).tourTarget(tour, "notifications"),
                         icon = Icons.Default.Notifications,
                         title = "Notifications",
                         subtitle = "View alerts",
@@ -376,7 +429,7 @@ fun PatientHomeScreen(
                         onClick = onNotificationsTap
                     )
                     DashboardCard(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).tourTarget(tour, "profile"),
                         icon = Icons.Default.Person,
                         title = "Profile",
                         subtitle = "Your account",
@@ -395,6 +448,20 @@ fun PatientHomeScreen(
             message = popupController.message,
             primaryAction = popupController.primaryAction,
             secondaryAction = popupController.secondaryAction
+        )
+
+        val finishTour: () -> Unit = {
+            shouldShowTour = false
+            scope.launch {
+                try {
+                    FirebaseService.updateUser(mapOf("hasCompletedOnboarding" to true))
+                } catch (_: Exception) { }
+            }
+        }
+        TourOverlay(
+            state = tour,
+            onComplete = finishTour,
+            onSkip = finishTour
         )
     }
 }

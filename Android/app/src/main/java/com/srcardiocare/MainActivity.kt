@@ -24,7 +24,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.navigation.compose.rememberNavController
-import com.srcardiocare.core.security.SecurePreferences
 import com.srcardiocare.navigation.SRCardiocareNavGraph
 import com.srcardiocare.navigation.Route
 import com.srcardiocare.ui.theme.DesignTokens
@@ -46,13 +45,9 @@ class MainActivity : ComponentActivity() {
 
                 LaunchedEffect(Unit) {
                     val auth = (application as SRCardiocareApp).awaitAuth()
-                    val prefs = SecurePreferences.getInstance(this@MainActivity)
-                    val hasSeenOnboarding = prefs.getBoolean("onboarding_seen", false)
 
                     startDest = when {
                         !auth.isLoggedIn -> Route.Login.path
-                        // Returning logged-in user who never saw onboarding
-                        !hasSeenOnboarding -> Route.Onboarding.path
                         auth.userRole == "ADMIN" -> Route.AdminDashboard.path
                         auth.userRole == "DOCTOR" -> Route.DoctorDashboard.path
                         else -> Route.PatientHome.path
