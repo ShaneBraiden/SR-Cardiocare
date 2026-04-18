@@ -111,7 +111,7 @@ private fun FeedbackTabView(patientId: String, patientName: String) {
             val res = FirebaseService.fetchPatientFeedbacks(patientId)
             feedbacks = res.map { (id, data) ->
                 val ts = data["submittedAt"] as? Timestamp
-                val sdf = SimpleDateFormat("MMM dd, yyyy • hh:mm a", Locale.getDefault())
+                val sdf = SimpleDateFormat("dd/MM/yyyy • hh:mm a", Locale.getDefault())
                 val dateStr = ts?.toDate()?.let { sdf.format(it) } ?: "Just now"
 
                 val stress = data["stress"] as? Boolean ?: false

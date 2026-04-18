@@ -74,7 +74,7 @@ fun AdminPatientAssignmentsScreen(
 
     val scope = rememberCoroutineScope()
     val today = LocalDate.now()
-    val dateFormatter = DateTimeFormatter.ofPattern("MMM dd, yyyy")
+    val dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
     val dayFormatter = DateTimeFormatter.ofPattern("EEEE")
 
     suspend fun loadData() {

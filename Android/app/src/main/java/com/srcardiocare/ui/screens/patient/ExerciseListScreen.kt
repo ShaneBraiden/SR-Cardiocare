@@ -137,7 +137,7 @@ fun ExerciseListScreen(
                     } else if (daysRemaining == 0) {
                         "Expires Today"
                     } else {
-                        "Expires in $daysRemaining days (${computedExpiryDate.format(DateTimeFormatter.ofPattern("MMM dd, yyyy"))})"
+                        "Expires in $daysRemaining days (${computedExpiryDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))})"
                     }
                 } else null
 
@@ -167,7 +167,7 @@ fun ExerciseListScreen(
 
                 // Parse exercises with assigned dates
                 val exercisesByDate = mutableMapOf<String, MutableList<ExItem>>()
-                val dateFormatter = DateTimeFormatter.ofPattern("MMM dd, yyyy")
+                val dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
 
                 planExercises.mapIndexedNotNull { index, ex ->
                     val exMap = ex as? Map<*, *> ?: return@mapIndexedNotNull null

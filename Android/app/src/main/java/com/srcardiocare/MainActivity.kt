@@ -1,6 +1,7 @@
 package com.srcardiocare
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -24,6 +25,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.navigation.compose.rememberNavController
+import com.srcardiocare.core.push.PendingRoute
+import com.srcardiocare.core.push.PushMessagingService
+import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.navigation.SRCardiocareNavGraph
 import com.srcardiocare.navigation.Route
 import com.srcardiocare.ui.theme.DesignTokens
@@ -33,6 +37,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // Cold/warm launch from a push tap: capture the route before Compose starts.
+        capturePushIntent(intent)
 
         setContent {
             SRCardiocareTheme {
@@ -52,6 +59,9 @@ class MainActivity : ComponentActivity() {
                         auth.userRole == "DOCTOR" -> Route.DoctorDashboard.path
                         else -> Route.PatientHome.path
                     }
+
+                    // Refresh FCM token on every startup so Firestore always has a valid token.
+                    FirebaseService.currentUID?.let { PushMessagingService.saveFcmToken(it) }
 
                     // Request notification permission after auth resolves (non-blocking)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -88,5 +98,19 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        capturePushIntent(intent)
+    }
+
+    private fun capturePushIntent(intent: Intent?) {
+        val route = intent?.getStringExtra(PushMessagingService.EXTRA_ROUTE).orEmpty()
+        if (route.isBlank()) return
+        val paramsJson = intent?.getStringExtra(PushMessagingService.EXTRA_PARAMS).orEmpty()
+        val params = PushMessagingService.parseParams(paramsJson)
+        PendingRoute.queue(route, params)
     }
 }

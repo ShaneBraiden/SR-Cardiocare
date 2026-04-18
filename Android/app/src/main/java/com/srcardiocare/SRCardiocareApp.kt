@@ -7,7 +7,7 @@ import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
 import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 import com.srcardiocare.core.auth.AuthManager
-import com.srcardiocare.core.NotificationService
+import com.srcardiocare.core.push.PushChannels
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -81,9 +81,9 @@ class SRCardiocareApp : Application() {
         super.onCreate()
         instance = this
         
-        // Initialize notification channels
-        NotificationService.createChannels(this)
-        
+        // Register notification channels for push + deep-link routing.
+        PushChannels.register(this)
+
         // Kick off async init immediately — do NOT block here.
         // authDeferred is already started by the field initialiser above.
     }

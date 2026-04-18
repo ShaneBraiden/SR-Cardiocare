@@ -86,12 +86,6 @@ class RehabRepository {
         firebase.createAppointment(data)
     }
 
-    // -- Notifications --
-
-    suspend fun getNotifications(userId: String): Result<List<Pair<String, Map<String, Any?>>>> = runCatching {
-        firebase.fetchNotifications(userId)
-    }
-
     // -- Delete Patient --
 
     suspend fun deletePatient(patientId: String): Result<Unit> = runCatching {

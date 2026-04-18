@@ -72,7 +72,7 @@ private data class PatientWorkoutStat(
 
 private fun formatWorkoutDate(epochMs: Long?): String {
     if (epochMs == null) return "No completion yet"
-    val formatter = DateTimeFormatter.ofPattern("MMM d, yyyy")
+    val formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
     return Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault()).format(formatter)
 }
 

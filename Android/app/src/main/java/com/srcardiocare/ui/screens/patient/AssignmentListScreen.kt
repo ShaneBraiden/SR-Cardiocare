@@ -45,7 +45,7 @@ fun AssignmentListScreen(
 
     val scope = rememberCoroutineScope()
     val today = LocalDate.now()
-    val dateFormatter = DateTimeFormatter.ofPattern("MMM dd, yyyy")
+    val dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
 
     suspend fun loadData() {
         try {
@@ -470,7 +470,7 @@ private fun ActiveExerciseCard(
 
 @Composable
 private fun HistoryExerciseCard(item: HistoryExerciseItem) {
-    val dateFormatter = DateTimeFormatter.ofPattern("MMM dd, yyyy")
+    val dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
     val endDate = LocalDate.parse(item.endDate)
 
     val (statusColor, statusIcon, statusText) = when (item.status) {

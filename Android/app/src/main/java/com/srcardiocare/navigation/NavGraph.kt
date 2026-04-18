@@ -9,6 +9,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -24,6 +25,8 @@ import androidx.navigation.navArgument
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.srcardiocare.core.auth.AuthManager
+import com.srcardiocare.core.push.DeepLink
+import com.srcardiocare.core.push.PendingRoute
 import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.ui.screens.auth.LoginScreen
 import com.srcardiocare.ui.screens.auth.ChangePasswordScreen
@@ -123,6 +126,7 @@ fun SRCardiocareNavGraph(
     startDestination: String = Route.Login.path
 ) {
     CurrentUserDocGuard(navController = navController)
+    PushDeepLinkHandler(navController = navController)
 
     NavHost(navController = navController, startDestination = startDestination) {
         composable(Route.Login.path) {
@@ -345,7 +349,10 @@ fun SRCardiocareNavGraph(
 
         composable(Route.Notifications.path) {
             NotificationsScreen(
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onOpenRoute = { route, params ->
+                    DeepLink.navigate(navController, route, params)
+                }
             )
         }
 
@@ -516,6 +523,24 @@ private fun parseAssignmentFromMap(id: String, data: Map<String, Any?>): Assignm
         isActive = data["isActive"] as? Boolean ?: true,
         createdAt = (data["createdAt"] as? Timestamp)?.toDate()?.toString()
     )
+}
+
+/**
+ * Drains [PendingRoute] when a push tap queued a destination.
+ *
+ * Collects the state-flow so every re-queue after NavHost is composed (warm
+ * foreground taps arriving via onNewIntent) also routes, not just the first one.
+ */
+@Composable
+private fun PushDeepLinkHandler(navController: NavHostController) {
+    val pending by PendingRoute.pending.collectAsState()
+    LaunchedEffect(pending) {
+        val target = pending ?: return@LaunchedEffect
+        // Drain first so a NavController exception can't cause a re-routing loop.
+        PendingRoute.consume()
+        if (FirebaseService.currentUID == null) return@LaunchedEffect
+        runCatching { DeepLink.navigate(navController, target.route, target.params) }
+    }
 }
 
 @Composable

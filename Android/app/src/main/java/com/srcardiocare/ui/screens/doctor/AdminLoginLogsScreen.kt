@@ -176,7 +176,7 @@ private fun LoginLogCard(item: LoginLogItem) {
         "failed" -> DesignTokens.Colors.Error
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
-    val sdf = remember { SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()) }
+    val sdf = remember { SimpleDateFormat("dd/MM/yyyy, hh:mm a", Locale.getDefault()) }
     val dateText = item.createdAt?.toDate()?.let { sdf.format(it) } ?: "Unknown time"
 
     Card(

@@ -42,7 +42,7 @@ fun PatientHistoryScreen(
 
     val scope = rememberCoroutineScope()
     val today = LocalDate.now()
-    val dateFormatter = DateTimeFormatter.ofPattern("MMM dd, yyyy")
+    val dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
 
     suspend fun loadData() {
         if (patientId.isBlank()) return
@@ -183,7 +183,7 @@ fun PatientHistoryScreen(
 @Composable
 private fun HistoryCard(item: HistoryExerciseItem) {
     val dateLabel = try {
-        LocalDate.parse(item.endDate).format(DateTimeFormatter.ofPattern("MMM dd, yyyy"))
+        LocalDate.parse(item.endDate).format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
     } catch (_: Exception) { item.endDate }
 
     val statusColor = when (item.status) {

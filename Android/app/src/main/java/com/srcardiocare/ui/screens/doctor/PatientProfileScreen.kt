@@ -287,7 +287,13 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                     val days = prescriptionDays.toIntOrNull() ?: 7
                     java.time.LocalDate.now().plusDays(days.toLong()).toString()
                 }
-                else -> prescriptionEndDate.ifBlank { java.time.LocalDate.now().plusDays(7).toString() }
+                else -> {
+                    try {
+                        java.time.LocalDate.parse(prescriptionEndDate, java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy")).toString()
+                    } catch (_: Exception) {
+                        java.time.LocalDate.now().plusDays(7).toString()
+                    }
+                }
             }
         }
 
@@ -355,8 +361,8 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                         OutlinedTextField(
                             value = prescriptionEndDate,
                             onValueChange = { prescriptionEndDate = it },
-                            label = { Text("End Date (YYYY-MM-DD)") },
-                            placeholder = { Text("e.g., 2026-04-15") },
+                            label = { Text("End Date (DD/MM/YYYY)") },
+                            placeholder = { Text("e.g., 15/04/2026") },
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(DesignTokens.Radius.Base),
                             singleLine = true
@@ -394,7 +400,11 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                             Spacer(modifier = Modifier.width(DesignTokens.Spacing.SM))
                             Column {
                                 Text("Plan ends on", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(calculatedEndDate, fontWeight = FontWeight.Bold, color = DesignTokens.Colors.Success)
+                                Text(
+                                    try { java.time.LocalDate.parse(calculatedEndDate).format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy")) } catch (_: Exception) { calculatedEndDate },
+                                    fontWeight = FontWeight.Bold,
+                                    color = DesignTokens.Colors.Success
+                                )
                             }
                         }
                     }
@@ -411,7 +421,7 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                                 } else {
                                     // Calculate days from end date
                                     try {
-                                        val endDate = java.time.LocalDate.parse(prescriptionEndDate)
+                                        val endDate = java.time.LocalDate.parse(prescriptionEndDate, java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy"))
                                         java.time.temporal.ChronoUnit.DAYS.between(java.time.LocalDate.now(), endDate).toInt().coerceAtLeast(1)
                                     } catch (_: Exception) { 7 }
                                 }
@@ -702,12 +712,11 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                                                             .collection("users").document(patientId)
                                                             .update("assignedDoctorId", docId)
                                                             .await()
-                                                        FirebaseService.createNotification(
-                                                            userId = patientId,
-                                                            title = "Doctor updated",
-                                                            body = "You are now assigned to $docName.",
-                                                            type = "plan",
-                                                            action = "doctor_changed"
+                                                        com.srcardiocare.core.push.Notifier.send(
+                                                            com.srcardiocare.core.push.NotificationEvent.DoctorAssigned(
+                                                                patientId = patientId,
+                                                                doctorName = docName
+                                                            )
                                                         )
                                                         currentAssignedDoctorId = docId
                                                         assignMessage = "Doctor changed to $docName"

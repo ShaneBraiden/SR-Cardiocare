@@ -311,13 +311,14 @@ fun ScheduleScreen(onBack: () -> Unit) {
             )
         )
 
-        FirebaseService.createNotification(
-            userId = notifyUserId,
-            title = title,
-            body = body,
-            type = "appointment_update",
-            appointmentId = appt.id,
-            action = action
+        com.srcardiocare.core.push.Notifier.send(
+            com.srcardiocare.core.push.NotificationEvent.AppointmentUpdated(
+                recipientId = notifyUserId,
+                title = title,
+                body = body,
+                appointmentId = appt.id,
+                action = action
+            )
         )
     }
 
@@ -466,13 +467,13 @@ fun ScheduleScreen(onBack: () -> Unit) {
                                     appointmentData["requestedByRole"] = if (role == "admin") "admin" else "doctor"
 
                                     val appointmentId = FirebaseService.createAppointment(appointmentData)
-                                    FirebaseService.createNotification(
-                                        userId = patientId,
-                                        title = "New appointment scheduled",
-                                        body = "$type at ${dateTime.format(DateTimeFormatter.ofPattern("h:mm a, MMM d"))}",
-                                        type = "appointment",
-                                        appointmentId = appointmentId,
-                                        action = "created"
+                                    com.srcardiocare.core.push.Notifier.send(
+                                        com.srcardiocare.core.push.NotificationEvent.AppointmentScheduled(
+                                            patientId = patientId,
+                                            appointmentType = type,
+                                            whenText = dateTime.format(DateTimeFormatter.ofPattern("h:mm a, dd/MM")),
+                                            appointmentId = appointmentId
+                                        )
                                     )
 
                                     snackbarHostState.showSnackbar("Appointment created")
@@ -488,13 +489,13 @@ fun ScheduleScreen(onBack: () -> Unit) {
                                     appointmentData["requestedByRole"] = "patient"
 
                                     val appointmentId = FirebaseService.createAppointment(appointmentData)
-                                    FirebaseService.createNotification(
-                                        userId = doctorId,
-                                        title = "New appointment request",
-                                        body = "Patient requested $type at ${dateTime.format(DateTimeFormatter.ofPattern("h:mm a, MMM d"))}",
-                                        type = "appointment_request",
-                                        appointmentId = appointmentId,
-                                        action = "requested"
+                                    com.srcardiocare.core.push.Notifier.send(
+                                        com.srcardiocare.core.push.NotificationEvent.AppointmentRequested(
+                                            doctorId = doctorId,
+                                            appointmentType = type,
+                                            whenText = dateTime.format(DateTimeFormatter.ofPattern("h:mm a, dd/MM")),
+                                            appointmentId = appointmentId
+                                        )
                                     )
 
                                     snackbarHostState.showSnackbar("Request sent. Waiting for doctor approval")
@@ -616,7 +617,7 @@ fun ScheduleScreen(onBack: () -> Unit) {
 
             selectedDate?.let {
                 Text(
-                    it.format(DateTimeFormatter.ofPattern("EEEE, MMM d")),
+                    it.format(DateTimeFormatter.ofPattern("EEEE, dd/MM")),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

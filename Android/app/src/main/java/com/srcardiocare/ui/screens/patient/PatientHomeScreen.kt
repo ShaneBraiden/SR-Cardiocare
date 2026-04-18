@@ -25,25 +25,18 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.srcardiocare.R
-import com.srcardiocare.core.NotificationService
 import com.srcardiocare.data.firebase.FirebaseService
-import com.srcardiocare.ui.components.InAppPopup
-import com.srcardiocare.ui.components.PopupAction
-import com.srcardiocare.ui.components.PopupType
 import com.srcardiocare.ui.components.TourOverlay
 import com.srcardiocare.ui.components.TourStep
-import com.srcardiocare.ui.components.rememberPopupController
 import com.srcardiocare.ui.components.rememberTourState
 import com.srcardiocare.ui.components.tourTarget
 import com.srcardiocare.ui.theme.DesignTokens
 import java.time.LocalDate
 import java.time.LocalDateTime
-import java.time.ZoneId
 import kotlinx.coroutines.launch
 
 private const val MAX_WORKOUTS_PER_DAY = 3
@@ -58,18 +51,10 @@ fun PatientHomeScreen(
     onChatTap: () -> Unit = {},
     onProfile: () -> Unit = {}
 ) {
-    val context = LocalContext.current
-    val popupController = rememberPopupController()
-
     var userName by remember { mutableStateOf("") }
-    var isLoading by remember { mutableStateOf(true) }
     var completedCount by remember { mutableIntStateOf(0) }
     var totalCount by remember { mutableIntStateOf(0) }
-    var fullyCompletedToday by remember { mutableIntStateOf(0) }
     var expiryText by remember { mutableStateOf<String?>(null) }
-    var unreadNotificationCount by remember { mutableIntStateOf(0) }
-    var unreadChatCount by remember { mutableIntStateOf(0) }
-    var latestPopupNotificationId by remember { mutableStateOf<String?>(null) }
     var shouldShowTour by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
@@ -178,79 +163,13 @@ fun PatientHomeScreen(
                                 else -> "Expires in $daysRemaining days"
                             }
                         } else null
-
-                        val pendingExercises = (totalCount - completedCount).coerceAtLeast(0)
-                        val hourNow = LocalDateTime.now().hour
-                        if (pendingExercises > 0 && hourNow >= 18) {
-                            val reminderTitle = "Workout reminder"
-                            val reminderBody = "You still have $pendingExercises exercise${if (pendingExercises != 1) "s" else ""} pending for today."
-
-                            val created = try {
-                                FirebaseService.ensureDailyWorkoutRiskNotification(
-                                    userId = uid,
-                                    title = reminderTitle,
-                                    body = reminderBody
-                                )
-                            } catch (_: Exception) {
-                                false
-                            }
-
-                            if (created) {
-                                NotificationService.showWorkoutReminderNotification(
-                                    context = context,
-                                    workoutName = "Today's workout",
-                                    minutesBefore = 0,
-                                    notificationId = 3901
-                                )
-                                popupController.show(
-                                    type = PopupType.WARNING,
-                                    title = reminderTitle,
-                                    message = reminderBody,
-                                    primaryAction = PopupAction("Open", onExerciseTap, true),
-                                    secondaryAction = PopupAction("Later", {})
-                                )
-                            }
-                        }
                     } catch (_: Exception) { }
-                    isLoading = false
                 }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        val uid = FirebaseService.currentUID ?: return@LaunchedEffect
-        FirebaseService.observeNotifications(uid).collect { raw ->
-            val unread = raw.filter { (_, data) -> (data["isRead"] as? Boolean) != true }
-            unreadNotificationCount = unread.size
-            unreadChatCount = unread.count { (_, data) ->
-                (data["type"] as? String)?.lowercase() == "message"
-            }
-
-            val newestUnread = unread.firstOrNull() ?: return@collect
-            if (newestUnread.first == latestPopupNotificationId) return@collect
-
-            val data = newestUnread.second
-            val popupType = when ((data["type"] as? String)?.lowercase()) {
-                "workout", "workout_risk" -> PopupType.WARNING
-                "feedback", "achievement" -> PopupType.SUCCESS
-                "message" -> PopupType.INFO
-                "appointment", "appointment_update", "appointment_request" -> PopupType.WARNING
-                else -> PopupType.INFO
-            }
-
-            popupController.show(
-                type = popupType,
-                title = data["title"] as? String ?: "New update",
-                message = (data["body"] as? String).orEmpty().ifBlank { "You have a new notification." },
-                primaryAction = PopupAction("View", onNotificationsTap, true),
-                secondaryAction = PopupAction("Later", {})
-            )
-            latestPopupNotificationId = newestUnread.first
         }
     }
 
@@ -405,7 +324,6 @@ fun PatientHomeScreen(
                         icon = Icons.Default.ChatBubble,
                         title = "Messages",
                         subtitle = "Chat with doctor",
-                        showDot = unreadChatCount > 0,
                         onClick = onChatTap
                     )
                 }
@@ -425,7 +343,6 @@ fun PatientHomeScreen(
                         icon = Icons.Default.Notifications,
                         title = "Notifications",
                         subtitle = "View alerts",
-                        badgeCount = unreadNotificationCount.takeIf { it > 0 },
                         onClick = onNotificationsTap
                     )
                     DashboardCard(
@@ -439,16 +356,6 @@ fun PatientHomeScreen(
             }
             }
         }
-
-        InAppPopup(
-            visible = popupController.isVisible,
-            onDismiss = { popupController.dismiss() },
-            type = popupController.type,
-            title = popupController.title,
-            message = popupController.message,
-            primaryAction = popupController.primaryAction,
-            secondaryAction = popupController.secondaryAction
-        )
 
         val finishTour: () -> Unit = {
             shouldShowTour = false

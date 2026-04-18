@@ -485,12 +485,11 @@ object FirebaseService {
         val exerciseName = exerciseData["name"]?.toString()
             ?: exerciseData["title"]?.toString()
             ?: "a new exercise"
-        createNotification(
-            userId = patientId,
-            title = "New exercise assigned",
-            body = "Your doctor assigned $exerciseName.",
-            type = "plan",
-            action = "assigned_exercise"
+        com.srcardiocare.core.push.Notifier.send(
+            com.srcardiocare.core.push.NotificationEvent.ExerciseAssigned(
+                patientId = patientId,
+                exerciseName = exerciseName
+            )
         )
     }
 
@@ -555,12 +554,12 @@ object FirebaseService {
         val exerciseName = exerciseData["name"]?.toString()
             ?: exerciseData["title"]?.toString()
             ?: "a new exercise"
-        createNotification(
-            userId = patientId,
-            title = "Workout plan updated",
-            body = "$exerciseName was prescribed until $expiryDate.",
-            type = "plan",
-            action = "prescription_updated"
+        com.srcardiocare.core.push.Notifier.send(
+            com.srcardiocare.core.push.NotificationEvent.PrescriptionUpdated(
+                patientId = patientId,
+                exerciseName = exerciseName,
+                expiryDate = expiryDate
+            )
         )
     }
 
@@ -597,12 +596,11 @@ object FirebaseService {
         )
         ref.set(data).await()
 
-        createNotification(
-            userId = patientId,
-            title = "New doctor feedback",
-            body = message.take(120),
-            type = "feedback",
-            action = "feedback_received"
+        com.srcardiocare.core.push.Notifier.send(
+            com.srcardiocare.core.push.NotificationEvent.DoctorFeedback(
+                patientId = patientId,
+                preview = message.take(120)
+            )
         )
     }
 
@@ -742,15 +740,51 @@ object FirebaseService {
     }
 
     // ── Notifications ───────────────────────────────────────────────────
+    //
+    // Schema (collection: "notifications"):
+    //   id: string, userId: string (recipient), title: string, body: string,
+    //   type: string (category for UI coloring), route: string (deep-link target),
+    //   params: map<string,string> (route arguments), isRead: bool,
+    //   createdAt: Timestamp (server)
+    //
+    // Writes are driven by `core.push.Notifier` — do not call [writeNotification]
+    // directly from UI; emit a typed event through Notifier so every push has a
+    // stable route + params contract.
+
+    /** Persists a notification document. Triggers the Cloud Function FCM fan-out. */
+    suspend fun writeNotification(
+        userId: String,
+        title: String,
+        body: String,
+        type: String,
+        route: String,
+        params: Map<String, String> = emptyMap()
+    ): String {
+        val ref = db.collection("notifications").document()
+        val data = mapOf(
+            "id" to ref.id,
+            "userId" to userId,
+            "title" to title,
+            "body" to body,
+            "type" to type,
+            "route" to route,
+            "params" to params,
+            "isRead" to false,
+            "createdAt" to FieldValue.serverTimestamp()
+        )
+        ref.set(data).await()
+        return ref.id
+    }
 
     suspend fun fetchNotifications(userId: String): List<Pair<String, Map<String, Any?>>> {
         val snapshot = db.collection("notifications")
             .whereEqualTo("userId", userId)
             .limit(100)
             .get().await()
-
-        val notifications = snapshot.documents.map { it.id to (it.data ?: emptyMap()) }
-        return sortNotificationsByCreatedAtDesc(notifications).take(50)
+        return snapshot.documents
+            .map { it.id to (it.data ?: emptyMap()) }
+            .sortedByDescending { notificationEpochMillis(it.second["createdAt"]) }
+            .take(50)
     }
 
     fun observeNotifications(userId: String): Flow<List<Pair<String, Map<String, Any?>>>> = callbackFlow {
@@ -759,46 +793,16 @@ object FirebaseService {
             .limit(100)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    // Keep the stream alive and avoid crashing the collector on transient listener errors.
                     trySend(emptyList())
                     return@addSnapshotListener
                 }
-                val notifications = snapshot?.documents?.map { it.id to (it.data ?: emptyMap()) } ?: emptyList()
-                trySend(sortNotificationsByCreatedAtDesc(notifications))
+                val notifications = snapshot?.documents
+                    ?.map { it.id to (it.data ?: emptyMap()) }
+                    ?.sortedByDescending { notificationEpochMillis(it.second["createdAt"]) }
+                    ?: emptyList()
+                trySend(notifications)
             }
         awaitClose { registration.remove() }
-    }
-
-    suspend fun countUnreadNotifications(userId: String): Int {
-        val snapshot = db.collection("notifications")
-            .whereEqualTo("userId", userId)
-            .whereEqualTo("isRead", false)
-            .get().await()
-        return snapshot.size()
-    }
-
-    suspend fun createNotification(
-        userId: String,
-        title: String,
-        body: String,
-        type: String,
-        appointmentId: String? = null,
-        action: String? = null
-    ): String {
-        val ref = db.collection("notifications").document()
-        val data = mutableMapOf<String, Any>(
-            "id" to ref.id,
-            "userId" to userId,
-            "title" to title,
-            "body" to body,
-            "type" to type,
-            "isRead" to false,
-            "createdAt" to FieldValue.serverTimestamp()
-        )
-        if (!appointmentId.isNullOrBlank()) data["appointmentId"] = appointmentId
-        if (!action.isNullOrBlank()) data["action"] = action
-        ref.set(data).await()
-        return ref.id
     }
 
     suspend fun markNotificationRead(id: String) {
@@ -824,6 +828,7 @@ object FirebaseService {
             .whereEqualTo("type", type)
             .whereEqualTo("isRead", false)
             .get().await()
+        if (snapshot.isEmpty) return
         val batch = db.batch()
         for (doc in snapshot.documents) {
             batch.update(doc.reference, "isRead", true)
@@ -831,61 +836,10 @@ object FirebaseService {
         batch.commit().await()
     }
 
-    suspend fun ensureDailyWorkoutRiskNotification(
-        userId: String,
-        title: String,
-        body: String
-    ): Boolean {
-        val today = LocalDate.now()
-        val snapshot = db.collection("notifications")
-            .whereEqualTo("userId", userId)
-            .whereEqualTo("type", "workout_risk")
-            .limit(50)
-            .get().await()
-
-        val alreadyExistsToday = snapshot.documents.any { doc ->
-            val data = doc.data ?: return@any false
-            val action = data["action"] as? String
-            if (action != "miss_risk") return@any false
-            val createdAt = data["createdAt"]
-            parseLocalDateFromNotificationCreatedAt(createdAt) == today
-        }
-        if (alreadyExistsToday) return false
-
-        createNotification(
-            userId = userId,
-            title = title,
-            body = body,
-            type = "workout_risk",
-            action = "miss_risk"
-        )
-        return true
-    }
-
-    private fun parseLocalDateFromNotificationCreatedAt(raw: Any?): LocalDate? {
-        return when (raw) {
-            is com.google.firebase.Timestamp -> raw.toDate().toInstant().atZone(ZoneId.systemDefault()).toLocalDate()
-            is String -> runCatching {
-                Instant.parse(raw).atZone(ZoneId.systemDefault()).toLocalDate()
-            }.getOrNull()
-            else -> null
-        }
-    }
-
-    private fun sortNotificationsByCreatedAtDesc(
-        notifications: List<Pair<String, Map<String, Any?>>>
-    ): List<Pair<String, Map<String, Any?>>> {
-        return notifications.sortedByDescending { (_, data) ->
-            parseNotificationCreatedAtEpochMillis(data["createdAt"])
-        }
-    }
-
-    private fun parseNotificationCreatedAtEpochMillis(raw: Any?): Long {
-        return when (raw) {
-            is com.google.firebase.Timestamp -> raw.toDate().time
-            is String -> runCatching { Instant.parse(raw).toEpochMilli() }.getOrDefault(0L)
-            else -> 0L
-        }
+    private fun notificationEpochMillis(raw: Any?): Long = when (raw) {
+        is com.google.firebase.Timestamp -> raw.toDate().time
+        is String -> runCatching { Instant.parse(raw).toEpochMilli() }.getOrDefault(0L)
+        else -> 0L
     }
 
     private suspend fun recordLoginLog(
@@ -1069,18 +1023,14 @@ object FirebaseService {
                 (fetchUser(senderId)["role"] as? String ?: "").lowercase()
             }.getOrDefault("")
 
-            val title = if (senderRole == "doctor" || senderRole == "admin") {
-                "New doctor message"
-            } else {
-                "New patient message"
-            }
-
-            createNotification(
-                userId = receiverId,
-                title = title,
-                body = "$senderName: ${text.take(90)}",
-                type = "message",
-                action = "chat_message"
+            com.srcardiocare.core.push.Notifier.send(
+                com.srcardiocare.core.push.NotificationEvent.ChatMessage(
+                    recipientId = receiverId,
+                    senderName = senderName,
+                    preview = text.take(90),
+                    chatThreadId = patientId,
+                    senderIsClinician = senderRole == "doctor" || senderRole == "admin"
+                )
             )
         }
     }

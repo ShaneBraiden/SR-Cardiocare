@@ -155,7 +155,7 @@ fun AddDoctorScreen(onSaved: () -> Unit, onBack: () -> Unit) {
                 colors = CardDefaults.cardColors(containerColor = DesignTokens.Colors.PrimaryLight.copy(alpha = 0.3f))
             ) {
                 Text(
-                    "A secure temporary password will be generated. Share it privately with the doctor — they will be prompted to change it on first login.",
+                    "Default password: phone number + \"@srcardio\" (e.g. 0812345678@srcardio). Share it with the doctor — they will be prompted to change it on first login.",
                     modifier = Modifier.padding(DesignTokens.Spacing.MD),
                     style = MaterialTheme.typography.bodySmall,
                     color = DesignTokens.Colors.PrimaryDark
@@ -199,8 +199,13 @@ fun AddDoctorScreen(onSaved: () -> Unit, onBack: () -> Unit) {
 
                     scope.launch {
                         try {
-                            // Generate a secure random temporary password — user must change on first login
-                            val temporaryPassword = PasswordGenerator.generateTemporaryPassword()
+                            // Default password is phone number + "@srcardio"; user must change on first login
+                            val sanitizedPhone = phoneValidation.sanitizedValue.replace("\\s".toRegex(), "")
+                            val temporaryPassword = if (sanitizedPhone.isNotBlank()) {
+                                "${sanitizedPhone}@srcardio"
+                            } else {
+                                PasswordGenerator.generateTemporaryPassword()
+                            }
 
                             // Create account WITHOUT switching auth session
                             val newDoctorUid = FirebaseService.registerOther(

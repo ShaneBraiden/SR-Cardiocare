@@ -2,171 +2,205 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // ============================================
-    // HELPER FUNCTIONS
-    // ============================================
-    
-    // Check if user is authenticated
+
+    // ── Helpers ──────────────────────────────────────────────────────────
+
     function isAuthenticated() {
       return request.auth != null;
     }
-    
-    // Check if user's email is verified
-    function isEmailVerified() {
-      return request.auth.token.email_verified == true;
-    }
-    
-    // Get current user's UID
-    function currentUserId() {
+
+    function uid() {
       return request.auth.uid;
     }
-    
-    // Check if user has a specific role (from custom claims)
-    function hasRole(role) {
-      return request.auth.token.role == role;
+
+    // Reads role from the user's Firestore doc (custom claims are not used).
+    function role() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
     }
-    
-    // Check if user is an admin
-    function isAdmin() {
-      return hasRole('admin');
-    }
-    
-    // Check if user is a doctor
-    function isDoctor() {
-      return hasRole('doctor');
-    }
-    
-    // Check if user is a patient
-    function isPatient() {
-      return hasRole('patient');
-    }
-    
-    // Check if user owns the document
-    function isOwner(userId) {
-      return currentUserId() == userId;
-    }
-    
-    // ============================================
-    // USERS COLLECTION
-    // ============================================
+
+    function isAdmin()  { return isAuthenticated() && role() == 'admin';  }
+    function isDoctor() { return isAuthenticated() && role() == 'doctor'; }
+    function isPatient(){ return isAuthenticated() && role() == 'patient';}
+
+    // ── Users ─────────────────────────────────────────────────────────────
     match /users/{userId} {
-      // Users can read their own profile
-      // Doctors can read their assigned patients
-      // Admins can read all users
-      allow read: if isAuthenticated() && (
-        isOwner(userId) ||
-        isAdmin() ||
-        (isDoctor() && resource.data.doctorId == currentUserId())
-      );
-      
-      // Users can only update their own profile (limited fields)
-      // Admins can update any user
+      // Own doc, or doctors/admins can list/read all users.
+      allow read: if isAuthenticated() && (uid() == userId || isDoctor() || isAdmin());
+
+      // Own profile updates — cannot touch role, isBlocked, assignedDoctorId.
       allow update: if isAuthenticated() && (
-        (isOwner(userId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'isBlocked', 'doctorId'])) ||
+        (uid() == userId &&
+          !request.resource.data.diff(resource.data)
+            .affectedKeys().hasAny(['role','isBlocked','assignedDoctorId'])) ||
+        isDoctor() ||
         isAdmin()
       );
-      
-      // Only admins can create/delete users via Firestore
-      // (Normal registration goes through Firebase Auth)
-      allow create, delete: if isAuthenticated() && isAdmin();
+
+      // Doctors can create patient accounts; admins can do anything.
+      allow create: if isAuthenticated() && (isDoctor() || isAdmin());
+      allow delete: if isAdmin();
     }
-    
-    // ============================================
-    // EXERCISES COLLECTION (Templates)
-    // ============================================
+
+    // ── Exercises ─────────────────────────────────────────────────────────
     match /exercises/{exerciseId} {
-      // All authenticated users can read exercises
-      allow read: if isAuthenticated();
-      
-      // Only doctors and admins can create/modify exercises
-      allow create, update, delete: if isAuthenticated() && (isDoctor() || isAdmin());
+      allow read:                    if isAuthenticated();
+      allow create, update, delete:  if isDoctor() || isAdmin();
     }
-    
-    // ============================================
-    // WORKOUTS COLLECTION (Patient-specific)
-    // ============================================
+
+    // ── Plans ─────────────────────────────────────────────────────────────
+    match /plans/{planId} {
+      allow get:  if isAuthenticated() && (
+        resource.data.patientId == uid() ||
+        resource.data.doctorId  == uid() ||
+        isAdmin()
+      );
+      allow list: if isAuthenticated();
+      allow create: if isDoctor() || isAdmin();
+      allow update: if isAuthenticated() && (
+        resource.data.doctorId == uid() || isAdmin()
+      );
+      allow delete: if isAuthenticated() && (
+        resource.data.doctorId == uid() || isAdmin()
+      );
+    }
+
+    // ── Assignments ───────────────────────────────────────────────────────
+    match /assignments/{assignmentId} {
+      allow get:  if isAuthenticated() && (
+        resource.data.patientId == uid() ||
+        resource.data.doctorId  == uid() ||
+        isAdmin()
+      );
+      allow list: if isAuthenticated();
+      allow create: if isDoctor() || isAdmin();
+      allow update: if isAuthenticated() && (
+        resource.data.doctorId == uid() || isAdmin()
+      );
+      allow delete: if isAuthenticated() && (
+        resource.data.doctorId == uid() || isAdmin()
+      );
+    }
+
+    // ── Session Logs ──────────────────────────────────────────────────────
+    match /sessionLogs/{sessionId} {
+      allow get:  if isAuthenticated() && (
+        resource.data.patientId == uid() || isDoctor() || isAdmin()
+      );
+      allow list: if isAuthenticated();
+      allow create: if isAuthenticated() &&
+        request.resource.data.patientId == uid();
+      allow update: if isAuthenticated() && (
+        resource.data.patientId == uid() || isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
+    // ── Workouts ──────────────────────────────────────────────────────────
     match /workouts/{workoutId} {
-      // Patients can read their own workouts
-      // Doctors can read workouts of their patients
-      // Admins can read all
-      allow read: if isAuthenticated() && (
-        resource.data.patientId == currentUserId() ||
-        resource.data.doctorId == currentUserId() ||
-        isAdmin()
+      allow get:  if isAuthenticated() && (
+        resource.data.patientId == uid() || isDoctor() || isAdmin()
       );
-      
-      // Only doctors can create workouts for their patients
-      allow create: if isAuthenticated() && (
-        isDoctor() && 
-        request.resource.data.doctorId == currentUserId()
-      );
-      
-      // Doctors can update workouts they created
-      // Patients can update completion status only
+      allow list: if isAuthenticated();
+      allow create: if isAuthenticated() &&
+        request.resource.data.patientId == uid();
       allow update: if isAuthenticated() && (
-        (isDoctor() && resource.data.doctorId == currentUserId()) ||
-        (isPatient() && resource.data.patientId == currentUserId() && 
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['completedAt', 'status', 'feedback']))
+        resource.data.patientId == uid() || isDoctor() || isAdmin()
       );
-      
-      // Only the creating doctor or admin can delete
-      allow delete: if isAuthenticated() && (
-        (isDoctor() && resource.data.doctorId == currentUserId()) ||
-        isAdmin()
-      );
+      allow delete: if isDoctor() || isAdmin();
     }
-    
-    // ============================================
-    // APPOINTMENTS COLLECTION
-    // ============================================
+
+    // ── Notifications ─────────────────────────────────────────────────────
+    match /notifications/{notificationId} {
+      allow get:  if isAuthenticated() && (
+        resource.data.userId == uid() || isAdmin()
+      );
+      allow list: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && resource.data.userId == uid();
+      allow delete: if isAdmin();
+    }
+
+    // ── Appointments ──────────────────────────────────────────────────────
     match /appointments/{appointmentId} {
-      // Both doctor and patient can read their appointments
-      allow read: if isAuthenticated() && (
-        resource.data.patientId == currentUserId() ||
-        resource.data.doctorId == currentUserId() ||
+      allow get:  if isAuthenticated() && (
+        resource.data.patientId == uid() ||
+        resource.data.doctorId  == uid() ||
         isAdmin()
       );
-      
-      // Only doctors can create appointments
-      allow create: if isAuthenticated() && isDoctor();
-      
-      // Doctor can update, patient can only update limited fields
+      allow list: if isAuthenticated();
+      allow create: if isDoctor() || isAdmin();
       allow update: if isAuthenticated() && (
-        (isDoctor() && resource.data.doctorId == currentUserId()) ||
-        (isPatient() && resource.data.patientId == currentUserId() &&
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['patientConfirmed', 'patientNotes']))
-      );
-      
-      // Only doctor who created or admin can delete
-      allow delete: if isAuthenticated() && (
-        (isDoctor() && resource.data.doctorId == currentUserId()) ||
+        resource.data.doctorId  == uid() ||
+        (resource.data.patientId == uid() &&
+          request.resource.data.diff(resource.data)
+            .affectedKeys().hasOnly(['patientConfirmed','patientNotes'])) ||
         isAdmin()
       );
+      allow delete: if isAuthenticated() && (
+        resource.data.doctorId == uid() || isAdmin()
+      );
     }
-    
-    // ============================================
-    // VIDEOS COLLECTION (Exercise videos)
-    // ============================================
+
+    // ── Chat ──────────────────────────────────────────────────────────────
+    match /chats/{patientId}/messages/{messageId} {
+      allow read:   if isAuthenticated() && (
+        uid() == patientId || isDoctor() || isAdmin()
+      );
+      allow create: if isAuthenticated() && (
+        uid() == patientId || isDoctor() || isAdmin()
+      );
+      allow update, delete: if false;
+    }
+
+    // ── Doctor Feedback (doctor → patient) ────────────────────────────────
+    match /feedback/{feedbackId} {
+      allow get:  if isAuthenticated() && (
+        resource.data.patientId == uid() ||
+        resource.data.doctorId  == uid() ||
+        isAdmin()
+      );
+      allow list: if isAuthenticated();
+      allow create: if isDoctor() || isAdmin();
+      allow update, delete: if isAdmin();
+    }
+
+    // ── Post-Workout Feedback ─────────────────────────────────────────────
+    match /postWorkoutFeedback/{feedbackId} {
+      allow get:  if isAuthenticated() && (
+        resource.data.patientId == uid() || isDoctor() || isAdmin()
+      );
+      allow list: if isAuthenticated();
+      allow create: if isAuthenticated() &&
+        request.resource.data.patientId == uid();
+      allow update, delete: if isAdmin();
+    }
+
+    // ── Login Logs ────────────────────────────────────────────────────────
+    match /loginLogs/{logId} {
+      allow read:   if isAdmin();
+      allow create: if isAuthenticated();
+      allow update, delete: if false;
+    }
+
+    // ── App Settings ──────────────────────────────────────────────────────
+    match /settings/{docId} {
+      allow read:  if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // ── Videos ────────────────────────────────────────────────────────────
     match /videos/{videoId} {
-      // All authenticated users can read videos
-      allow read: if isAuthenticated();
-      
-      // Only doctors and admins can manage videos
-      allow create, update, delete: if isAuthenticated() && (isDoctor() || isAdmin());
+      allow read:                   if isAuthenticated();
+      allow create, update, delete: if isDoctor() || isAdmin();
     }
-    
-    // ============================================
-    // AUDIT LOGS (Read-only for admins)
-    // ============================================
+
+    // ── Audit Logs ────────────────────────────────────────────────────────
     match /auditLogs/{logId} {
-      allow read: if isAuthenticated() && isAdmin();
-      allow write: if false; // Only backend can write via Admin SDK
+      allow read:  if isAdmin();
+      allow write: if false;
     }
-    
-    // ============================================
-    // DEFAULT DENY - Block everything else
-    // ============================================
+
+    // ── Default deny ──────────────────────────────────────────────────────
     match /{document=**} {
       allow read, write: if false;
     }
