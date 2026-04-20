@@ -1,4 +1,4 @@
-// TourOverlay.kt — In-app guided tour overlay with spotlight + tooltip callouts.
+// TourOverlay.kt — In-app guided tour with animated arrow callouts (no dark overlay).
 //
 // Usage (see PatientHomeScreen for an integration example):
 //   1. Define steps: `val steps = listOf(TourStep("exercises", "Exercises", "Tap here…"), …)`
@@ -7,21 +7,22 @@
 //   4. Render overlay at the top of your Box: `TourOverlay(tour, onComplete = …, onSkip = …)`
 package com.srcardiocare.ui.components
 
-import androidx.compose.foundation.background
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -78,7 +79,7 @@ fun rememberTourState(steps: List<TourStep>, active: Boolean): TourState {
     return state
 }
 
-/** Measures the element's bounds-in-window so the overlay can draw a spotlight around it. */
+/** Registers the element's window-relative bounds so the arrow can point at it. */
 fun Modifier.tourTarget(state: TourState, key: String): Modifier =
     this.onGloballyPositioned { coords ->
         state.registerTarget(key, coords.boundsInWindow())
@@ -94,8 +95,7 @@ fun TourOverlay(
     val step = state.currentStep ?: return
     val rect = state.currentRect
     val density = LocalDensity.current
-    val padPx = with(density) { 8.dp.toPx() }
-    val cornerPx = with(density) { DesignTokens.Radius.LG.toPx() }
+    val screenHeightPx = with(density) { LocalConfiguration.current.screenHeightDp.dp.toPx() }
 
     Popup(
         properties = PopupProperties(focusable = true, dismissOnBackPress = false, dismissOnClickOutside = false)
@@ -103,24 +103,12 @@ fun TourOverlay(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                // Swallow all touches so the underlying UI is not interactive during the tour.
                 .pointerInput(step.key) { awaitPointerEventScope { while (true) awaitPointerEvent() } }
-                // graphicsLayer forces an offscreen layer so BlendMode.Clear can punch a hole.
-                .graphicsLayer(alpha = 0.99f)
-                .drawWithContent {
-                    drawContent()
-                    drawRect(color = Color.Black.copy(alpha = 0.72f))
-                    if (rect != null && rect.width > 0f && rect.height > 0f) {
-                        drawRoundRect(
-                            color = Color.Transparent,
-                            topLeft = Offset(rect.left - padPx, rect.top - padPx),
-                            size = Size(rect.width + padPx * 2, rect.height + padPx * 2),
-                            cornerRadius = CornerRadius(cornerPx, cornerPx),
-                            blendMode = BlendMode.Clear
-                        )
-                    }
-                }
         ) {
+            if (rect != null && rect.width > 0f && rect.height > 0f) {
+                BouncingArrow(rect = rect, screenHeightPx = screenHeightPx)
+            }
+
             TooltipCallout(
                 rect = rect,
                 title = step.title,
@@ -139,6 +127,62 @@ fun TourOverlay(
     }
 }
 
+/** Draws an animated triangle arrow that bounces toward the target element. */
+@Composable
+private fun BouncingArrow(rect: Rect, screenHeightPx: Float) {
+    val density = LocalDensity.current
+    val primary = DesignTokens.Colors.Primary
+    val isTargetInUpperHalf = rect.center.y < screenHeightPx / 2f
+
+    val infiniteTransition = rememberInfiniteTransition(label = "arrow")
+    val bounceOffset by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 14f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(500, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "bounce"
+    )
+    val alphaValue by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 0.55f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(500, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "alpha"
+    )
+
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        val arrowHeight = with(density) { 30.dp.toPx() }
+        val arrowHalfWidth = with(density) { 18.dp.toPx() }
+        val gap = with(density) { 12.dp.toPx() }
+
+        val centerX = rect.center.x.coerceIn(arrowHalfWidth, size.width - arrowHalfWidth)
+
+        val path = Path()
+        if (isTargetInUpperHalf) {
+            // Target is above → arrow points UP, positioned just below target, bouncing away from it
+            val tipY = rect.bottom + gap + bounceOffset
+            val baseY = tipY + arrowHeight
+            path.moveTo(centerX, tipY)
+            path.lineTo(centerX - arrowHalfWidth, baseY)
+            path.lineTo(centerX + arrowHalfWidth, baseY)
+        } else {
+            // Target is below → arrow points DOWN, positioned just above target, bouncing away from it
+            val tipY = rect.top - gap - bounceOffset
+            val baseY = tipY - arrowHeight
+            path.moveTo(centerX, tipY)
+            path.lineTo(centerX - arrowHalfWidth, baseY)
+            path.lineTo(centerX + arrowHalfWidth, baseY)
+        }
+        path.close()
+
+        drawPath(path, color = primary.copy(alpha = alphaValue))
+    }
+}
+
 @Composable
 private fun BoxScope.TooltipCallout(
     rect: Rect?,
@@ -154,8 +198,6 @@ private fun BoxScope.TooltipCallout(
 ) {
     val density = LocalDensity.current
     val screenHeightPx = with(density) { LocalConfiguration.current.screenHeightDp.dp.toPx() }
-    // Place the card below the target when the target sits in the upper half; otherwise above.
-    // When no rect is known yet (first layout pass) center it on screen.
     val verticalAlignment: Alignment = when {
         rect == null -> Alignment.Center
         rect.center.y < screenHeightPx / 2f -> Alignment.BottomCenter
