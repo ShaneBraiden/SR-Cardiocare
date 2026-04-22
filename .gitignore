@@ -88,6 +88,12 @@ local.properties
 Android/app/build/
 Android/build/
 
+# Android signing — never commit real keystore or credentials
+keystore.properties
+Android/keystore.properties
+*.jks
+*.keystore
+
 # Dev folder
 Dev/
 

@@ -1,0 +1,86 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ── Helpers ───────────────────────────────────────────────────────────
+
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return request.auth.uid == uid;
+    }
+
+    function isImage() {
+      return request.resource.contentType.matches('image/(jpeg|png|webp|gif)');
+    }
+
+    function isVideo() {
+      return request.resource.contentType.matches('video/(mp4|quicktime|webm|x-msvideo)');
+    }
+
+    function isImageOrVideo() {
+      return isImage() || isVideo();
+    }
+
+    function underMB(mb) {
+      return request.resource.size <= mb * 1024 * 1024;
+    }
+
+    // ── User Profile Images ───────────────────────────────────────────────
+    // Path: /users/{userId}/profile/{fileName}
+    // Doctors and patients both have profile photos. Any authenticated user
+    // can read (doctor needs patient avatar in chat). Only the owner writes.
+    match /users/{userId}/profile/{fileName} {
+      allow read:   if isAuth();
+      allow write:  if isAuth() && isOwner(userId) && isImage() && underMB(5);
+      allow delete: if isAuth() && isOwner(userId);
+    }
+
+    // ── Patient Workout Videos ────────────────────────────────────────────
+    // Path: /workouts/{userId}/{fileName}
+    // Patients upload their own exercise recordings. Doctors can read for review.
+    match /workouts/{userId}/{fileName} {
+      allow read:   if isAuth();
+      allow write:  if isAuth() && isOwner(userId) && isVideo() && underMB(500);
+      allow delete: if isAuth() && isOwner(userId);
+    }
+
+    // ── Exercise Library Videos ───────────────────────────────────────────
+    // Path: /exercises/{exerciseId}/{fileName}
+    // Read-only for all authenticated users. Writes must go through a Cloud
+    // Function using the Admin SDK — no direct client uploads permitted.
+    match /exercises/{exerciseId}/{allPaths=**} {
+      allow read:          if isAuth();
+      allow write, delete: if false;
+    }
+
+    // ── Chat Attachments ──────────────────────────────────────────────────
+    // Path: /chats/{patientId}/attachments/{fileName}
+    // Both patient and doctor sides of the chat can read. Any authenticated
+    // user may upload (the doctor's UID won't match patientId so we allow
+    // authenticated writes broadly here). Only the patient can delete their
+    // own folder.
+    match /chats/{patientId}/attachments/{fileName} {
+      allow read:   if isAuth();
+      allow write:  if isAuth() && isImageOrVideo() && underMB(50);
+      allow delete: if isAuth() && isOwner(patientId);
+    }
+
+    // ── Session Log Attachments ───────────────────────────────────────────
+    // Path: /sessionLogs/{userId}/{sessionId}/{fileName}
+    // Heart-rate screenshots, RPE photos, or short clips attached to a session.
+    match /sessionLogs/{userId}/{sessionId}/{fileName} {
+      allow read:   if isAuth();
+      allow write:  if isAuth() && isOwner(userId) && isImageOrVideo() && underMB(100);
+      allow delete: if isAuth() && isOwner(userId);
+    }
+
+    // ── Default deny — explicit allowlist above, everything else is blocked ─
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

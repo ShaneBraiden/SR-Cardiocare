@@ -11,7 +11,8 @@
       "Bash(firebase deploy *)",
       "Bash(gcloud projects add-iam-policy-binding sr-cardiocare *)",
       "Bash(firebase functions:delete fanOutNotification --region us-central1)",
-      "Bash(firebase functions:log --only fanOutNotification)"
+      "Bash(firebase functions:log --only fanOutNotification)",
+      "Bash(git -C /c/Apps/Physio_App log --oneline)"
     ]
   }
 }
