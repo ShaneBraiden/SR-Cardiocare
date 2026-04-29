@@ -223,7 +223,8 @@ fun SRCardiocareNavGraph(
                 onSchedule = { navController.navigate(Route.Schedule.path) },
                 onProfile = { navController.navigate(Route.DoctorProfile.path) },
                 onFeedbacks = { navController.navigate(Route.FeedbackDashboard.path) },
-                onPatientList = { navController.navigate(Route.PatientList.path) }
+                onPatientList = { navController.navigate(Route.PatientList.path) },
+                onAddPatient = { navController.navigate(Route.AddPatient.path) }
             )
         }
 
@@ -241,7 +242,7 @@ fun SRCardiocareNavGraph(
                     }
                 },
                 onProfile = {
-                    navController.navigate(Route.AdminSettings.path) {
+                    navController.navigate(Route.DoctorProfile.path) {
                         launchSingleTop = true
                     }
                 }
@@ -369,14 +370,8 @@ fun SRCardiocareNavGraph(
         }
 
         composable(Route.AdminSettings.path) {
-            DoctorProfileScreen(
-                onBack = { navController.popBackStack() },
-                onLogout = {
-                    navController.navigate(Route.Login.path) {
-                        popUpTo(0) { inclusive = true }
-                    }
-                },
-                onChangePassword = { navController.navigate(Route.ChangePassword.path) }
+            com.srcardiocare.ui.screens.doctor.AdminSettingsScreen(
+                onBack = { navController.popBackStack() }
             )
         }
 

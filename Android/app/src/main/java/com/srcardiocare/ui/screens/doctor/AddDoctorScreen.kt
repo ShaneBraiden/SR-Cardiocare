@@ -28,9 +28,7 @@ fun AddDoctorScreen(onSaved: () -> Unit, onBack: () -> Unit) {
     var fullName by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
-    var speciality by remember { mutableStateOf("") }
     var licenseNumber by remember { mutableStateOf("") }
-    var clinicName by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
@@ -115,31 +113,9 @@ fun AddDoctorScreen(onSaved: () -> Unit, onBack: () -> Unit) {
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
 
             OutlinedTextField(
-                value = speciality,
-                onValueChange = { speciality = InputValidator.limitLength(it, InputValidator.MaxLength.SPECIALITY) },
-                label = { Text("Speciality") }, placeholder = { Text("e.g. Cardiology") },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(DesignTokens.Radius.Base),
-                singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = DesignTokens.Colors.Primary)
-            )
-            Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
-
-            OutlinedTextField(
                 value = licenseNumber,
                 onValueChange = { licenseNumber = InputValidator.limitLength(it, InputValidator.MaxLength.LICENSE_NUMBER) },
                 label = { Text("License Number") }, placeholder = { Text("e.g. MED-12345") },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(DesignTokens.Radius.Base),
-                singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = DesignTokens.Colors.Primary)
-            )
-            Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
-
-            OutlinedTextField(
-                value = clinicName,
-                onValueChange = { clinicName = InputValidator.limitLength(it, InputValidator.MaxLength.CLINIC_NAME) },
-                label = { Text("Clinic Name") }, placeholder = { Text("e.g. City Heart Clinic") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(DesignTokens.Radius.Base),
                 singleLine = true,
@@ -175,11 +151,6 @@ fun AddDoctorScreen(onSaved: () -> Unit, onBack: () -> Unit) {
                     val nameParts = nameValidation.sanitizedValue.split(" ", limit = 2)
                     val firstName = nameParts.firstOrNull() ?: ""
                     val lastName = if (nameParts.size > 1) nameParts[1] else ""
-
-                    if (firstName.isBlank() || lastName.isBlank()) {
-                        errorMessage = "Please enter both first and last name"
-                        return@Button
-                    }
 
                     // Validate email
                     val emailValidation = InputValidator.validateEmail(email)
@@ -221,9 +192,7 @@ fun AddDoctorScreen(onSaved: () -> Unit, onBack: () -> Unit) {
                             if (phoneValidation.sanitizedValue.isNotBlank()) {
                                 extraFields["phone"] = phoneValidation.sanitizedValue
                             }
-                            if (speciality.isNotBlank()) extraFields["speciality"] = speciality.trim()
                             if (licenseNumber.isNotBlank()) extraFields["licenseNumber"] = licenseNumber.trim()
-                            if (clinicName.isNotBlank()) extraFields["clinicName"] = clinicName.trim()
                             // Flag for first login password change prompt
                             extraFields["mustChangePassword"] = true
 

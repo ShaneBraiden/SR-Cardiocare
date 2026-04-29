@@ -2,8 +2,11 @@ package com.srcardiocare.ui.screens.doctor
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -148,6 +151,7 @@ private fun FeedbackTabView(patientId: String, patientName: String) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ChatTabView(patientId: String) {
     var rawMessages by remember { mutableStateOf<List<Map<String, Any?>>>(emptyList()) }
@@ -155,6 +159,14 @@ private fun ChatTabView(patientId: String) {
     val scope = rememberCoroutineScope()
     var currentUid by remember { mutableStateOf("") }
     var currentName by remember { mutableStateOf("") }
+    val listState = rememberLazyListState()
+    val isImeVisible = WindowInsets.isImeVisible
+
+    LaunchedEffect(rawMessages.size, isImeVisible) {
+        if (rawMessages.isNotEmpty()) {
+            listState.animateScrollToItem(rawMessages.size)
+        }
+    }
 
     LaunchedEffect(patientId) {
         val uid = FirebaseService.currentUID ?: return@LaunchedEffect
@@ -173,6 +185,7 @@ private fun ChatTabView(patientId: String) {
 
     Column(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
+            state = listState,
             modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = DesignTokens.Spacing.MD),
             reverseLayout = false
         ) {

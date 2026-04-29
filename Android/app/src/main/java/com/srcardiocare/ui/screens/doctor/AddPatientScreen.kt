@@ -140,7 +140,7 @@ fun AddPatientScreen(onSaved: () -> Unit, onBack: () -> Unit) {
             OutlinedTextField(
                 value = injuryType,
                 onValueChange = { injuryType = InputValidator.limitLength(it, InputValidator.MaxLength.INJURY_TYPE) },
-                label = { Text("Injury Type") }, placeholder = { Text("e.g. ACL Injury") },
+                label = { Text("Condition") }, placeholder = { Text("e.g. Hypertension") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(DesignTokens.Radius.Base),
                 singleLine = true,

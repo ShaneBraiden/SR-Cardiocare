@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.FitnessCenter
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
@@ -85,7 +86,8 @@ fun DoctorDashboardScreen(
     onSchedule: () -> Unit,
     onProfile: () -> Unit = {},
     onFeedbacks: () -> Unit = {},
-    onPatientList: () -> Unit = {}
+    onPatientList: () -> Unit = {},
+    onAddPatient: () -> Unit = {}
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var allUsers by remember { mutableStateOf<List<UserItem>>(emptyList()) }
@@ -459,7 +461,7 @@ fun DoctorDashboardScreen(
                     }
                     Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
 
-                    // Row 3: Profile
+                    // Row 3: Profile + Add Patient (doctor only)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -473,7 +475,17 @@ fun DoctorDashboardScreen(
                             subtitle = "Your account",
                             onClick = onProfile
                         )
-                        Spacer(modifier = Modifier.weight(1f))
+                        if (userRole == "doctor") {
+                            DashboardCard(
+                                modifier = Modifier.weight(1f),
+                                icon = Icons.Default.PersonAdd,
+                                title = "Add Patient",
+                                subtitle = "Create new patient",
+                                onClick = onAddPatient
+                            )
+                        } else {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
                     }
                     Spacer(modifier = Modifier.height(DesignTokens.Spacing.XL))
                 }

@@ -2,8 +2,11 @@ package com.srcardiocare.ui.screens.patient
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -26,12 +29,20 @@ import java.text.SimpleDateFormat
 import java.util.*
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun PatientChatScreen(onBack: () -> Unit) {
     var rawMessages by remember { mutableStateOf<List<Map<String, Any?>>>(emptyList()) }
     var inputText by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
+    val listState = rememberLazyListState()
+    val isImeVisible = WindowInsets.isImeVisible
+
+    LaunchedEffect(rawMessages.size, isImeVisible) {
+        if (rawMessages.isNotEmpty()) {
+            listState.animateScrollToItem(rawMessages.size)
+        }
+    }
     
     var currentUid by remember { mutableStateOf("") }
     var currentName by remember { mutableStateOf("") }
@@ -77,6 +88,7 @@ fun PatientChatScreen(onBack: () -> Unit) {
                 .imePadding()
         ) {
             LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
