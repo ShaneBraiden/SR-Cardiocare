@@ -28,7 +28,6 @@ fun AddDoctorScreen(onSaved: () -> Unit, onBack: () -> Unit) {
     var fullName by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
-    var licenseNumber by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
@@ -81,7 +80,7 @@ fun AddDoctorScreen(onSaved: () -> Unit, onBack: () -> Unit) {
             OutlinedTextField(
                 value = fullName,
                 onValueChange = { fullName = InputValidator.limitLength(it, InputValidator.MaxLength.NAME) },
-                label = { Text("Full Name") }, placeholder = { Text("e.g. Dr. Jane Smith") },
+                label = { Text("Name") }, placeholder = { Text("e.g. Dr. Jane Smith") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(DesignTokens.Radius.Base),
                 singleLine = true,
@@ -112,16 +111,6 @@ fun AddDoctorScreen(onSaved: () -> Unit, onBack: () -> Unit) {
             )
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
 
-            OutlinedTextField(
-                value = licenseNumber,
-                onValueChange = { licenseNumber = InputValidator.limitLength(it, InputValidator.MaxLength.LICENSE_NUMBER) },
-                label = { Text("License Number") }, placeholder = { Text("e.g. MED-12345") },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(DesignTokens.Radius.Base),
-                singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = DesignTokens.Colors.Primary)
-            )
-
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.SM))
 
             // Password info
@@ -143,7 +132,7 @@ fun AddDoctorScreen(onSaved: () -> Unit, onBack: () -> Unit) {
             Button(
                 onClick = {
                     // Validate name
-                    val nameValidation = InputValidator.validateName(fullName, "Full Name")
+                    val nameValidation = InputValidator.validateName(fullName, "Name")
                     if (!nameValidation.isValid) {
                         errorMessage = nameValidation.errorMessage
                         return@Button
@@ -192,7 +181,6 @@ fun AddDoctorScreen(onSaved: () -> Unit, onBack: () -> Unit) {
                             if (phoneValidation.sanitizedValue.isNotBlank()) {
                                 extraFields["phone"] = phoneValidation.sanitizedValue
                             }
-                            if (licenseNumber.isNotBlank()) extraFields["licenseNumber"] = licenseNumber.trim()
                             // Flag for first login password change prompt
                             extraFields["mustChangePassword"] = true
 

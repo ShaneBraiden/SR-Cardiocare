@@ -31,7 +31,6 @@ fun AddPatientScreen(onSaved: () -> Unit, onBack: () -> Unit) {
     var email by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
     var injuryType by remember { mutableStateOf("") }
-    var notes by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
@@ -146,18 +145,6 @@ fun AddPatientScreen(onSaved: () -> Unit, onBack: () -> Unit) {
                 singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = DesignTokens.Colors.Primary)
             )
-            Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
-
-            OutlinedTextField(
-                value = notes,
-                onValueChange = { notes = InputValidator.limitLength(it, InputValidator.MaxLength.NOTES) },
-                label = { Text("Additional Notes") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(100.dp),
-                shape = RoundedCornerShape(DesignTokens.Radius.Base),
-                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = DesignTokens.Colors.Primary)
-            )
 
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.SM))
 
@@ -244,7 +231,6 @@ fun AddPatientScreen(onSaved: () -> Unit, onBack: () -> Unit) {
                                 extraFields["age"] = ageValidation.sanitizedValue.toInt()
                             }
                             extraFields["gender"] = genders[selectedGender]
-                            if (notes.isNotBlank()) extraFields["notes"] = notes.trim()
                             if (creatingUserUid != null) {
                                 val creatorRole = (FirebaseService.fetchUser(creatingUserUid)["role"] as? String ?: "").lowercase()
                                 if (creatorRole == "doctor") {

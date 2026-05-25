@@ -13,9 +13,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,6 +31,7 @@ import com.srcardiocare.core.push.PushMessagingService
 import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.navigation.SRCardiocareNavGraph
 import com.srcardiocare.navigation.Route
+import com.srcardiocare.ui.components.PoweredByBadge
 import com.srcardiocare.ui.theme.DesignTokens
 import com.srcardiocare.ui.theme.SRCardiocareTheme
 
@@ -82,19 +84,26 @@ class MainActivity : ComponentActivity() {
                             .background(MaterialTheme.colorScheme.background),
                         contentAlignment = Alignment.BottomCenter
                     ) {
-                        Text(
-                            text = "Powered by SRET-AIDA",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                            modifier = Modifier.padding(bottom = DesignTokens.Spacing.MD)
+                        PoweredByBadge(
+                            modifier = Modifier
+                                .navigationBarsPadding()
+                                .padding(bottom = DesignTokens.Spacing.SM)
                         )
                     }
                 } else {
                     val navController = rememberNavController()
-                    SRCardiocareNavGraph(
-                        navController = navController,
-                        startDestination = startDest!!
-                    )
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        SRCardiocareNavGraph(
+                            navController = navController,
+                            startDestination = startDest!!
+                        )
+                        PoweredByBadge(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .navigationBarsPadding()
+                                .imePadding()
+                        )
+                    }
                 }
             }
         }

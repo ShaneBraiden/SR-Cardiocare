@@ -15,7 +15,34 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.srcardiocare.ui.theme.DesignTokens
+
+/**
+ * Global "Powered by SRET-AIDA" attribution badge displayed on every screen.
+ * Compact pill at the bottom of the viewport — visible but unobtrusive.
+ */
+@Composable
+fun PoweredByBadge(modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier.padding(bottom = 4.dp),
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+        tonalElevation = 2.dp,
+        shadowElevation = 1.dp
+    ) {
+        Text(
+            text = "Powered by SRET-AIDA",
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Medium,
+                letterSpacing = 0.4.sp
+            ),
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
+        )
+    }
+}
 
 /**
  * Style variants for StatItem component.
