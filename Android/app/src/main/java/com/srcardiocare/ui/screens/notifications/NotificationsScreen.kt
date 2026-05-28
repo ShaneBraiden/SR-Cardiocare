@@ -24,6 +24,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.ui.components.SkeletonListRow
+import com.srcardiocare.ui.components.rememberToast
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -37,11 +39,16 @@ fun NotificationsScreen(
     onOpenRoute: (route: String, params: Map<String, String>) -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val toast = rememberToast()
     var items by remember { mutableStateOf<List<Pair<String, Map<String, Any?>>>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
         val uid = FirebaseService.currentUID ?: return@LaunchedEffect
-        FirebaseService.observeNotifications(uid).collect { items = it }
+        FirebaseService.observeNotifications(uid).collect {
+            items = it
+            isLoading = false
+        }
     }
 
     Scaffold(
@@ -60,6 +67,7 @@ fun NotificationsScreen(
                             scope.launch {
                                 val uid = FirebaseService.currentUID ?: return@launch
                                 runCatching { FirebaseService.markAllNotificationsRead(uid) }
+                                    .onSuccess { toast("All notifications marked read") }
                             }
                         }) {
                             Icon(Icons.Default.DoneAll, contentDescription = "Mark all read")
@@ -71,6 +79,18 @@ fun NotificationsScreen(
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
+        if (isLoading) {
+            LazyColumn(
+                modifier = Modifier
+                    .padding(padding)
+                    .fillMaxSize(),
+                contentPadding = PaddingValues(vertical = DesignTokens.Spacing.MD)
+            ) {
+                items(5) { SkeletonListRow() }
+            }
+            return@Scaffold
+        }
+
         if (items.isEmpty()) {
             Box(
                 modifier = Modifier

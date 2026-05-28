@@ -19,11 +19,15 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.srcardiocare.core.auth.AuthManager
+import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.core.security.InputValidator
 import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.ui.components.InitialsAvatar
 import com.srcardiocare.ui.components.LogoutConfirmDialog
 import com.srcardiocare.ui.components.ProfileInfoRow
+import com.srcardiocare.ui.components.ShimmerBox
+import com.srcardiocare.ui.components.SkeletonProfileHeader
+import com.srcardiocare.ui.components.rememberToast
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
 
@@ -37,6 +41,7 @@ fun PatientProfileSelfScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val toast = rememberToast()
 
     var firstName by remember { mutableStateOf("") }
     var lastName by remember { mutableStateOf("") }
@@ -134,9 +139,10 @@ fun PatientProfileSelfScreen(
                 phone = phoneValidation.sanitizedValue
                 condition = trimmedCondition
                 isEditing = false
-                snackbarHostState.showSnackbar("Profile updated")
+                toast("Profile updated")
             } catch (e: Exception) {
-                snackbarHostState.showSnackbar(e.message ?: "Failed to update profile")
+                toast("Failed to update profile")
+                snackbarHostState.showSnackbar(ErrorHandler.getDisplayMessage(e, "update profile"))
             }
             isSaving = false
         }
@@ -165,8 +171,24 @@ fun PatientProfileSelfScreen(
         containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
         if (isLoading) {
-            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = DesignTokens.Colors.Primary)
+            Column(
+                modifier = Modifier
+                    .padding(padding)
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = DesignTokens.Spacing.XL)
+            ) {
+                SkeletonProfileHeader()
+                Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+                repeat(5) {
+                    ShimmerBox(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp),
+                        shape = RoundedCornerShape(DesignTokens.Radius.Base)
+                    )
+                    Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+                }
             }
         } else {
             Column(

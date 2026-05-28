@@ -18,6 +18,7 @@ import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.core.security.InputValidator
 import com.srcardiocare.core.security.PasswordGenerator
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.ui.components.rememberToast
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -33,6 +34,7 @@ fun AddDoctorScreen(onSaved: () -> Unit, onBack: () -> Unit) {
 
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val toast = rememberToast()
 
     // Remember admin credentials to re-sign-in after creating the doctor
     var adminEmail by remember { mutableStateOf<String?>(null) }
@@ -190,6 +192,7 @@ fun AddDoctorScreen(onSaved: () -> Unit, onBack: () -> Unit) {
                                 .await()
 
                             // Show success and navigate back
+                            toast("Doctor added")
                             snackbarHostState.showSnackbar("Doctor account created! Share the temporary password with them securely.")
                             onSaved()
                         } catch (e: Exception) {

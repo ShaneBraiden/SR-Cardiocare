@@ -21,12 +21,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.data.model.AssignmentHistoryStatus
+import com.srcardiocare.ui.components.SkeletonListRow
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -62,6 +67,7 @@ enum class AssignmentStatus {
 @Composable
 fun AdminPatientAssignmentsScreen(
     patientId: String,
+    onEditAssignment: (assignmentId: String) -> Unit = {},
     onBack: () -> Unit
 ) {
     var patientName by remember { mutableStateOf("Loading...") }
@@ -167,13 +173,24 @@ fun AdminPatientAssignmentsScreen(
 
             errorMessage = null
         } catch (e: Exception) {
-            errorMessage = e.message ?: "Failed to load assignments"
+            errorMessage = ErrorHandler.getDisplayMessage(e, "load assignments")
         }
         isLoading = false
         isRefreshing = false
     }
 
     LaunchedEffect(patientId) { loadData() }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                scope.launch { loadData() }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     Scaffold(
         topBar = {
@@ -203,8 +220,11 @@ fun AdminPatientAssignmentsScreen(
         ) {
             when {
                 isLoading -> {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = DesignTokens.Colors.Primary)
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(vertical = DesignTokens.Spacing.MD)
+                    ) {
+                        items(6) { SkeletonListRow() }
                     }
                 }
                 errorMessage != null -> {
@@ -340,7 +360,10 @@ fun AdminPatientAssignmentsScreen(
                             // Assignments under this date
                             if (group.date in expandedDates) {
                                 items(group.assignments, key = { it.id }) { assignment ->
-                                    AssignmentCard(assignment = assignment)
+                                    AssignmentCard(
+                                        assignment = assignment,
+                                        onEdit = { onEditAssignment(assignment.id) }
+                                    )
                                 }
                             }
                         }
@@ -432,7 +455,7 @@ private fun DateGroupHeader(
 }
 
 @Composable
-private fun AssignmentCard(assignment: PatientAssignmentItem) {
+private fun AssignmentCard(assignment: PatientAssignmentItem, onEdit: () -> Unit = {}) {
     val statusColor = when (assignment.status) {
         AssignmentStatus.COMPLETED, AssignmentStatus.DONE_TODAY -> DesignTokens.Colors.Success
         AssignmentStatus.ACTIVE -> DesignTokens.Colors.Primary
@@ -459,7 +482,8 @@ private fun AssignmentCard(assignment: PatientAssignmentItem) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = DesignTokens.Spacing.XXXL, end = DesignTokens.Spacing.XL, top = 2.dp, bottom = 2.dp),
+            .padding(start = DesignTokens.Spacing.XXXL, end = DesignTokens.Spacing.XL, top = 2.dp, bottom = 2.dp)
+            .clickable(enabled = !assignment.isExpired) { onEdit() },
         shape = RoundedCornerShape(DesignTokens.Radius.Base),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {

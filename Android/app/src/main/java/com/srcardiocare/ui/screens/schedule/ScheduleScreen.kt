@@ -65,6 +65,7 @@ import com.google.firebase.firestore.FieldValue
 import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.core.security.InputValidator
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.ui.components.SkeletonListRow
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -628,8 +629,11 @@ fun ScheduleScreen(onBack: () -> Unit) {
             HorizontalDivider(color = DesignTokens.Colors.NeutralLight)
             when {
                 isLoading -> {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = DesignTokens.Colors.Primary)
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(vertical = DesignTokens.Spacing.MD)
+                    ) {
+                        items(5) { SkeletonListRow() }
                     }
                 }
 

@@ -18,6 +18,7 @@ import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.core.security.InputValidator
 import com.srcardiocare.core.security.PasswordGenerator
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.ui.components.rememberToast
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -37,6 +38,7 @@ fun AddPatientScreen(onSaved: () -> Unit, onBack: () -> Unit) {
     val genders = listOf("Male", "Female", "Other")
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val toast = rememberToast()
 
     LaunchedEffect(errorMessage) {
         errorMessage?.let {
@@ -246,6 +248,7 @@ fun AddPatientScreen(onSaved: () -> Unit, onBack: () -> Unit) {
                                 .await()
 
                             // Show success and navigate back
+                            toast("Patient added")
                             snackbarHostState.showSnackbar("Patient account created! Share the temporary password with them securely.")
                             onSaved()
                         } catch (e: Exception) {

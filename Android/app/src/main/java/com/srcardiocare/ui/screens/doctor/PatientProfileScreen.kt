@@ -15,6 +15,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.VideoLibrary
@@ -29,13 +30,23 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.ui.components.InitialsAvatar
+import com.srcardiocare.ui.components.SkeletonBarChart
+import com.srcardiocare.ui.components.SkeletonListRow
+import com.srcardiocare.ui.components.SkeletonProfileHeader
+import com.srcardiocare.ui.components.rememberToast
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: () -> Unit, onHistoryTap: () -> Unit) {
+fun PatientProfileScreen(
+    patientId: String,
+    onBack: () -> Unit,
+    onVideoUpload: () -> Unit,
+    onHistoryTap: () -> Unit,
+    onManageAssignments: () -> Unit = {}
+) {
     var patientName by remember { mutableStateOf("") }
     var patientCondition by remember { mutableStateOf("") }
     var patientInitials by remember { mutableStateOf("") }
@@ -71,6 +82,7 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
 
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val toast = rememberToast()
 
     // Show snackbar when assignMessage changes
     LaunchedEffect(assignMessage) {
@@ -240,11 +252,11 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                         scope.launch {
                             try {
                                 FirebaseService.sendFeedback(patientId, feedbackMessage.trim())
-                                assignMessage = "Feedback sent"
+                                toast("Feedback sent")
                                 showFeedbackDialog = false
                                 feedbackMessage = ""
                             } catch (e: Exception) {
-                                assignMessage = "Failed to send feedback"
+                                toast("Failed to send feedback")
                             }
                             isSendingFeedback = false
                         }
@@ -279,6 +291,7 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
 
         var isAssigning by remember { mutableStateOf(false) }
         var customSetsInput by remember { mutableStateOf(initialSets.toString()) }
+        var restSecondsInput by remember { mutableIntStateOf(45) }
 
         // Calculate end date based on mode
         val calculatedEndDate = remember(prescriptionMode, prescriptionDays, prescriptionEndDate) {
@@ -386,6 +399,24 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
 
                     Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
 
+                    // Rest between sets
+                    Text("Rest Between Sets", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelLarge)
+                    Spacer(modifier = Modifier.height(DesignTokens.Spacing.SM))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.SM)
+                    ) {
+                        listOf(30, 45, 60, 90).forEach { secs ->
+                            FilterChip(
+                                selected = restSecondsInput == secs,
+                                onClick = { restSecondsInput = secs },
+                                label = { Text("${secs}s") }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+
                     // Show calculated end date
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -438,6 +469,7 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                                     "difficulty" to difficulty,
                                     "customSets" to assignedSets,
                                     "customReps" to defaultReps,
+                                    "restSeconds" to restSecondsInput,
                                     "videoUrl" to (videoUrl ?: ""),
                                     "instructions" to when (instructions) {
                                         is String -> instructions
@@ -457,10 +489,10 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
 
                                 showPrescriptionDialog = false
                                 selectedExercise = null
-                                assignMessage = "\"$exName\" prescribed to $patientName until $calculatedEndDate"
+                                toast("Workout added: $exName")
                                 loadPatientData()
                             } catch (e: Exception) {
-                                assignMessage = "Failed: ${e.message}"
+                                toast("Failed to add workout")
                             }
                             isAssigning = false
                         }
@@ -492,6 +524,9 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                     }
                 },
                 actions = {
+                    IconButton(onClick = onManageAssignments) {
+                        Icon(Icons.Default.EditNote, contentDescription = "Manage Assignments")
+                    }
                     IconButton(onClick = onHistoryTap) {
                         Icon(Icons.Default.History, contentDescription = "Patient History")
                     }
@@ -503,8 +538,20 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
         containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
         if (isLoading) {
-            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = DesignTokens.Colors.Primary)
+            Column(
+                modifier = Modifier
+                    .padding(padding)
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                SkeletonProfileHeader()
+                Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+                Box(modifier = Modifier.padding(horizontal = DesignTokens.Spacing.XL)) {
+                    SkeletonBarChart(barCount = 7, chartHeight = 80.dp)
+                }
+                Spacer(modifier = Modifier.height(DesignTokens.Spacing.XL))
+                repeat(3) { SkeletonListRow() }
+                Spacer(modifier = Modifier.height(DesignTokens.Spacing.XL))
             }
         } else {
         Column(
@@ -719,9 +766,9 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                                                             )
                                                         )
                                                         currentAssignedDoctorId = docId
-                                                        assignMessage = "Doctor changed to $docName"
+                                                        toast("Doctor changed to $docName")
                                                     } catch (e: Exception) {
-                                                        assignMessage = "Failed: ${e.message}"
+                                                        toast("Failed to change doctor")
                                                     }
                                                     isAssigningDoctor = false
                                                 }
@@ -827,10 +874,10 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                                 scope.launch {
                                     try {
                                         FirebaseService.removeExerciseFromPlan(patientId, ex)
-                                        assignMessage = "Removed $name"
+                                        toast("Workout removed: $name")
                                         loadPatientData() // reload list
                                     } catch (e: Exception) {
-                                        assignMessage = "Failed to remove exercise"
+                                        toast("Failed to remove workout")
                                     }
                                 }
                             }) {
@@ -859,10 +906,11 @@ fun PatientProfileScreen(patientId: String, onBack: () -> Unit, onVideoUpload: (
                                 scope.launch {
                                     try {
                                         FirebaseService.deletePatient(patientId)
+                                        toast("Patient deleted")
                                         showDeleteDialog = false
                                         onBack() // Navigate back on success
                                     } catch (e: Exception) {
-                                        assignMessage = "Failed to delete: ${e.message}"
+                                        toast("Failed to delete patient")
                                         isDeleting = false
                                         showDeleteDialog = false
                                     }

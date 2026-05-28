@@ -30,6 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.srcardiocare.R
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.ui.components.ShimmerBox
 import com.srcardiocare.ui.components.TourOverlay
 import com.srcardiocare.ui.components.TourStep
 import com.srcardiocare.ui.components.rememberTourState
@@ -56,6 +57,7 @@ fun PatientHomeScreen(
     var totalCount by remember { mutableIntStateOf(0) }
     var expiryText by remember { mutableStateOf<String?>(null) }
     var shouldShowTour by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(true) }
     val scope = rememberCoroutineScope()
 
     val tourSteps = remember {
@@ -164,6 +166,7 @@ fun PatientHomeScreen(
                             }
                         } else null
                     } catch (_: Exception) { }
+                    isLoading = false
                 }
             }
         }
@@ -229,38 +232,68 @@ fun PatientHomeScreen(
                 }
             }
 
-            // Progress card
+            // Progress card (or skeleton while loading)
             item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = DesignTokens.Spacing.XL)
-                        .tourTarget(tour, "progress"),
-                    shape = RoundedCornerShape(DesignTokens.Radius.XL),
-                    colors = CardDefaults.cardColors(containerColor = DesignTokens.Colors.Primary)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(DesignTokens.Spacing.XL),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.XL)
+                if (isLoading) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = DesignTokens.Spacing.XL),
+                        shape = RoundedCornerShape(DesignTokens.Radius.XL),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                     ) {
-                        val progress = if (totalCount > 0) completedCount.toFloat() / totalCount else 0f
-                        val progressPercent = (progress * 100).toInt()
-                        Box(contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(
-                                progress = { progress },
+                        Row(
+                            modifier = Modifier.padding(DesignTokens.Spacing.XL),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.XL)
+                        ) {
+                            ShimmerBox(
                                 modifier = Modifier.size(80.dp),
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                trackColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.3f),
-                                strokeWidth = 8.dp,
-                                strokeCap = StrokeCap.Round,
+                                shape = CircleShape
                             )
-                            Text("$progressPercent%", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
+                            Column(modifier = Modifier.weight(1f)) {
+                                ShimmerBox(
+                                    modifier = Modifier.fillMaxWidth(0.6f).height(16.dp)
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                ShimmerBox(
+                                    modifier = Modifier.fillMaxWidth(0.4f).height(12.dp)
+                                )
+                            }
                         }
-                        Column {
-                            Text("Today's Progress", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onPrimary)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text("$completedCount of $totalCount exercises", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f))
+                    }
+                } else {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = DesignTokens.Spacing.XL)
+                            .tourTarget(tour, "progress"),
+                        shape = RoundedCornerShape(DesignTokens.Radius.XL),
+                        colors = CardDefaults.cardColors(containerColor = DesignTokens.Colors.Primary)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(DesignTokens.Spacing.XL),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.XL)
+                        ) {
+                            val progress = if (totalCount > 0) completedCount.toFloat() / totalCount else 0f
+                            val progressPercent = (progress * 100).toInt()
+                            Box(contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(
+                                    progress = { progress },
+                                    modifier = Modifier.size(80.dp),
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    trackColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.3f),
+                                    strokeWidth = 8.dp,
+                                    strokeCap = StrokeCap.Round,
+                                )
+                                Text("$progressPercent%", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
+                            }
+                            Column {
+                                Text("Today's Progress", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onPrimary)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text("$completedCount of $totalCount exercises", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f))
+                            }
                         }
                     }
                 }

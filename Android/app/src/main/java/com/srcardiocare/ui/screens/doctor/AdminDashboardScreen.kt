@@ -28,15 +28,25 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.ui.components.SkeletonDonutChart
+import com.srcardiocare.ui.components.SkeletonStatsCard
 import com.srcardiocare.ui.components.StatItem
 import com.srcardiocare.ui.components.StatItemStyle
 import com.srcardiocare.ui.theme.DesignTokens
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import java.time.Duration
 import java.time.Instant
+import java.time.LocalDate
 
 data class DoctorItem(
     val id: String,
@@ -64,6 +74,9 @@ fun AdminDashboardScreen(
     var totalUsers by remember { mutableStateOf(0) }
     var onlineCount by remember { mutableStateOf(0) }
     var blockedCount by remember { mutableStateOf(0) }
+    var onTrackCount by remember { mutableStateOf(0) }
+    var attentionCount by remember { mutableStateOf(0) }
+    var notAssignedCount by remember { mutableStateOf(0) }
     var isLoading by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
     var adminName by remember { mutableStateOf("") }
@@ -144,15 +157,67 @@ fun AdminDashboardScreen(
             totalPatients = patientCounter
             onlineCount = onlineCounter
             blockedCount = blockedCounter
+
+            // Compute patient workout status (On Track / Attention / Not Assigned)
+            val today = LocalDate.now().toString()
+            val patientIds = allUsers.filter { (_, data) ->
+                ((data["role"] as? String) ?: "patient").lowercase() == "patient"
+            }.map { it.first }
+
+            var onTrack = 0
+            var attention = 0
+            var notAssigned = 0
+            coroutineScope {
+                patientIds.map { patientId ->
+                    async {
+                        try {
+                            val assignments = FirebaseService.fetchAssignments(patientId)
+                            if (assignments.isEmpty()) return@async "not_assigned"
+                            val completedAssignmentsToday = assignments.count { (assignmentId, assignmentData) ->
+                                val dailyFrequency = ((assignmentData["dailyFrequency"] as? Number)?.toInt() ?: 3).coerceIn(1, 3)
+                                val done = try {
+                                    FirebaseService.fetchSessionsForDate(assignmentId, today).count { (_, s) ->
+                                        ((s["status"] as? String) ?: "").equals("COMPLETED", ignoreCase = true)
+                                    }
+                                } catch (_: Exception) { 0 }
+                                done >= dailyFrequency
+                            }
+                            if (completedAssignmentsToday == assignments.size) "on_track" else "attention"
+                        } catch (_: Exception) { "not_assigned" }
+                    }
+                }.awaitAll().forEach { status ->
+                    when (status) {
+                        "on_track" -> onTrack++
+                        "attention" -> attention++
+                        else -> notAssigned++
+                    }
+                }
+            }
+            onTrackCount = onTrack
+            attentionCount = attention
+            notAssignedCount = notAssigned
+
             errorMessage = null
         } catch (e: Exception) {
-            errorMessage = e.message ?: "Failed to load data"
+            errorMessage = ErrorHandler.getDisplayMessage(e, "load dashboard")
         }
         isLoading = false
         isRefreshing = false
     }
 
     LaunchedEffect(Unit) { loadData() }
+
+    // Auto-refresh when navigating back to the dashboard
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                scope.launch { loadData() }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     Scaffold(
         topBar = {
@@ -192,6 +257,28 @@ fun AdminDashboardScreen(
                     }
                 }
 
+                // Loading skeletons for stats + status + chart
+                if (isLoading && errorMessage == null) {
+                    item {
+                        Box(modifier = Modifier.padding(horizontal = DesignTokens.Spacing.XL)) {
+                            SkeletonStatsCard(itemCount = 4)
+                        }
+                        Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+                    }
+                    item {
+                        Box(modifier = Modifier.padding(horizontal = DesignTokens.Spacing.XL)) {
+                            SkeletonStatsCard(itemCount = 3)
+                        }
+                        Spacer(modifier = Modifier.height(DesignTokens.Spacing.LG))
+                    }
+                    item {
+                        Box(modifier = Modifier.padding(horizontal = DesignTokens.Spacing.XL)) {
+                            SkeletonDonutChart(diameter = 180.dp)
+                        }
+                        Spacer(modifier = Modifier.height(DesignTokens.Spacing.LG))
+                    }
+                }
+
                 // Stats card
                 if (!isLoading && errorMessage == null) {
                     item {
@@ -212,6 +299,48 @@ fun AdminDashboardScreen(
                                 StatItem(value = totalPatients.toString(), label = "Patients", style = StatItemStyle.LIGHT)
                                 StatItem(value = onlineCount.toString(), label = "Online", style = StatItemStyle.LIGHT)
                                 StatItem(value = blockedCount.toString(), label = "Blocked", style = StatItemStyle.LIGHT)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+                    }
+
+                    // Patient status card
+                    item {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = DesignTokens.Spacing.XL),
+                            shape = RoundedCornerShape(DesignTokens.Radius.Card),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        ) {
+                            Column(modifier = Modifier.padding(DesignTokens.Spacing.XL)) {
+                                Text(
+                                    "Patient Status — Today",
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceAround
+                                ) {
+                                    AdminStatusChip(
+                                        label = "On Track",
+                                        value = onTrackCount,
+                                        accent = DesignTokens.Colors.Success
+                                    )
+                                    AdminStatusChip(
+                                        label = "Attention",
+                                        value = attentionCount,
+                                        accent = DesignTokens.Colors.Warning
+                                    )
+                                    AdminStatusChip(
+                                        label = "Not Assigned",
+                                        value = notAssignedCount,
+                                        accent = DesignTokens.Colors.NeutralDark
+                                    )
+                                }
                             }
                         }
                         Spacer(modifier = Modifier.height(DesignTokens.Spacing.LG))
@@ -385,6 +514,35 @@ fun AdminDashboardScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun AdminStatusChip(
+    label: String,
+    value: Int,
+    accent: Color
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(DesignTokens.Radius.Full))
+                .background(accent.copy(alpha = 0.15f))
+                .padding(horizontal = 14.dp, vertical = 6.dp)
+        ) {
+            Text(
+                value.toString(),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = accent
+            )
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 

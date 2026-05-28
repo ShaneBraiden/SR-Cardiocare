@@ -25,6 +25,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.data.model.*
+import com.srcardiocare.ui.components.SkeletonListRow
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -67,6 +68,7 @@ fun PatientHistoryScreen(
                     dailyFrequency = ((data["dailyFrequency"] as? Number)?.toInt() ?: 3).coerceIn(1, 3),
                     sets = (data["sets"] as? Number)?.toInt() ?: 3,
                     reps = (data["reps"] as? Number)?.toInt() ?: 10,
+                    restSeconds = (data["restSeconds"] as? Number)?.toInt() ?: 45,
                     instructions = data["instructions"] as? String,
                     completionThreshold = (data["completionThreshold"] as? Number)?.toFloat() ?: 0.8f,
                     isActive = data["isActive"] as? Boolean ?: true,
@@ -156,11 +158,7 @@ fun PatientHistoryScreen(
                 contentPadding = PaddingValues(vertical = DesignTokens.Spacing.MD)
             ) {
                 if (isLoading) {
-                    item {
-                        Box(modifier = Modifier.fillMaxWidth().padding(DesignTokens.Spacing.XL), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator()
-                        }
-                    }
+                    items(6) { SkeletonListRow() }
                 } else if (historyExercises.isEmpty()) {
                     item {
                         Box(

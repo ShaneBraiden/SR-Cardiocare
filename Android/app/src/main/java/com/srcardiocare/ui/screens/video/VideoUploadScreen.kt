@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.core.security.InputValidator
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.ui.components.rememberToast
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
 
@@ -46,6 +47,7 @@ fun VideoUploadScreen(onBack: () -> Unit, onUploaded: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val toast = rememberToast()
 
     LaunchedEffect(errorMessage) {
         errorMessage?.let {
@@ -243,10 +245,12 @@ fun VideoUploadScreen(onBack: () -> Unit, onUploaded: () -> Unit) {
                             uploadProgress = 1.0f
 
                             // Success — navigate back
+                            toast("Exercise added")
                             onUploaded()
                         } catch (e: Exception) {
                             isUploading = false
                             uploadProgress = 0f
+                            toast("Failed to upload exercise")
                             errorMessage = ErrorHandler.getDisplayMessage(e, "upload exercise")
                         }
                     }

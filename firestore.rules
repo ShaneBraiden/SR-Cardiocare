@@ -52,16 +52,13 @@ service cloud.firestore {
       allow get:  if isAuthenticated() && (
         resource.data.patientId == uid() ||
         resource.data.doctorId  == uid() ||
+        isDoctor() ||
         isAdmin()
       );
       allow list: if isAuthenticated();
       allow create: if isDoctor() || isAdmin();
-      allow update: if isAuthenticated() && (
-        resource.data.doctorId == uid() || isAdmin()
-      );
-      allow delete: if isAuthenticated() && (
-        resource.data.doctorId == uid() || isAdmin()
-      );
+      allow update: if isDoctor() || isAdmin();
+      allow delete: if isDoctor() || isAdmin();
     }
 
     // ── Assignments ───────────────────────────────────────────────────────
@@ -69,16 +66,13 @@ service cloud.firestore {
       allow get:  if isAuthenticated() && (
         resource.data.patientId == uid() ||
         resource.data.doctorId  == uid() ||
+        isDoctor() ||
         isAdmin()
       );
       allow list: if isAuthenticated();
       allow create: if isDoctor() || isAdmin();
-      allow update: if isAuthenticated() && (
-        resource.data.doctorId == uid() || isAdmin()
-      );
-      allow delete: if isAuthenticated() && (
-        resource.data.doctorId == uid() || isAdmin()
-      );
+      allow update: if isDoctor() || isAdmin();
+      allow delete: if isDoctor() || isAdmin();
     }
 
     // ── Session Logs ──────────────────────────────────────────────────────

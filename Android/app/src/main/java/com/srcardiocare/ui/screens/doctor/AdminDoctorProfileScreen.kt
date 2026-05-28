@@ -15,7 +15,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.ui.components.ShimmerBox
+import com.srcardiocare.ui.components.SkeletonProfileHeader
+import com.srcardiocare.ui.components.rememberToast
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
 
@@ -42,6 +46,7 @@ fun AdminDoctorProfileScreen(
 
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val toast = rememberToast()
 
     LaunchedEffect(doctorId) {
         try {
@@ -54,7 +59,7 @@ fun AdminDoctorProfileScreen(
             licenseNumber = data["licenseNumber"] as? String ?: ""
             clinicName = data["clinicName"] as? String ?: ""
         } catch (e: Exception) {
-            errorMessage = "Failed to load doctor details: ${e.message}"
+            errorMessage = ErrorHandler.getDisplayMessage(e, "load doctor details")
         }
         isLoading = false
     }
@@ -72,10 +77,12 @@ fun AdminDoctorProfileScreen(
                         scope.launch {
                             try {
                                 FirebaseService.deleteUser(doctorId)
+                                toast("Doctor deleted")
                                 onDeleted()
                             } catch (e: Exception) {
                                 isDeleting = false
-                                errorMessage = "Failed to delete: ${e.message}"
+                                toast("Failed to delete doctor")
+                                errorMessage = ErrorHandler.getDisplayMessage(e, "delete doctor")
                             }
                         }
                     }
@@ -116,8 +123,24 @@ fun AdminDoctorProfileScreen(
         containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
         if (isLoading) {
-            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = DesignTokens.Colors.Primary)
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = DesignTokens.Spacing.XL)
+            ) {
+                SkeletonProfileHeader()
+                Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+                repeat(5) {
+                    ShimmerBox(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp),
+                        shape = RoundedCornerShape(DesignTokens.Radius.Base)
+                    )
+                    Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+                }
             }
             return@Scaffold
         }
@@ -211,9 +234,10 @@ fun AdminDoctorProfileScreen(
                                 "clinicName" to clinicName.trim()
                             )
                             FirebaseService.updateUserById(doctorId, updates)
-                            snackbarHostState.showSnackbar("Doctor updated successfully")
+                            toast("Doctor updated")
                         } catch (e: Exception) {
-                            errorMessage = "Failed to update: ${e.message}"
+                            toast("Failed to update doctor")
+                            errorMessage = ErrorHandler.getDisplayMessage(e, "update doctor")
                         }
                         isSaving = false
                     }

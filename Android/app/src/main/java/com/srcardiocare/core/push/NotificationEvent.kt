@@ -136,4 +136,16 @@ sealed class NotificationEvent {
         override val route get() = DeepLink.Routes.PROFILE_PATIENT
         override val params get() = emptyMap<String, String>()
     }
+
+    data class WorkoutReminder(
+        val patientId: String
+    ) : NotificationEvent() {
+        override val userId get() = patientId
+        override val title get() = "Don't forget your workout"
+        override val body get() = "You still have exercises to finish today. Tap to view your plan."
+        override val type get() = "workout_reminder"
+        override val channelId get() = PushChannels.GENERAL
+        override val route get() = DeepLink.Routes.EXERCISES
+        override val params get() = emptyMap<String, String>()
+    }
 }

@@ -23,7 +23,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.ui.components.SkeletonListRow
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
 import java.time.Duration
@@ -109,7 +111,7 @@ fun AdminDoctorPatientsScreen(
             }
             errorMessage = null
         } catch (e: Exception) {
-            errorMessage = e.message ?: "Failed to load patients"
+            errorMessage = ErrorHandler.getDisplayMessage(e, "load patients")
         }
         isLoading = false
         isRefreshing = false
@@ -145,8 +147,11 @@ fun AdminDoctorPatientsScreen(
         ) {
             when {
                 isLoading -> {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = DesignTokens.Colors.Primary)
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(vertical = DesignTokens.Spacing.MD)
+                    ) {
+                        items(6) { SkeletonListRow() }
                     }
                 }
                 errorMessage != null -> {

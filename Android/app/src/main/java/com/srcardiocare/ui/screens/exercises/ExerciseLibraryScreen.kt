@@ -40,6 +40,8 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.srcardiocare.core.security.InputValidator
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.ui.components.ShimmerBox
+import com.srcardiocare.ui.components.rememberToast
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
 
@@ -68,6 +70,7 @@ fun ExerciseLibraryScreen(onBack: () -> Unit, onUpload: () -> Unit) {
     var isDeleting by remember { mutableStateOf(false) }
     var playingVideo by remember { mutableStateOf<ExLibItem?>(null) }
     val scope = rememberCoroutineScope()
+    val toast = rememberToast()
 
     LaunchedEffect(Unit) {
         try {
@@ -151,8 +154,10 @@ fun ExerciseLibraryScreen(onBack: () -> Unit, onUpload: () -> Unit) {
                                 try {
                                     FirebaseService.deleteExercise(ex.id, ex.videoUrl)
                                     allExercises = allExercises.filter { it.id != ex.id }
+                                    toast("Exercise removed")
                                     showDeleteDialogFor = null
                                 } catch (e: Exception) {
+                                    toast("Failed to remove exercise")
                                     showDeleteDialogFor = null
                                 } finally {
                                     isDeleting = false
@@ -223,6 +228,44 @@ fun ExerciseLibraryScreen(onBack: () -> Unit, onUpload: () -> Unit) {
 
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
 
+            // Grid (skeleton when loading)
+            if (isLoading) {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(2),
+                    verticalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.MD),
+                    horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.MD),
+                    contentPadding = PaddingValues(horizontal = DesignTokens.Spacing.XL, vertical = DesignTokens.Spacing.SM),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    items(6) {
+                        Card(
+                            shape = RoundedCornerShape(DesignTokens.Radius.LG),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        ) {
+                            Column(modifier = Modifier.padding(DesignTokens.Spacing.MD)) {
+                                ShimmerBox(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(80.dp),
+                                    shape = RoundedCornerShape(DesignTokens.Radius.Base)
+                                )
+                                Spacer(modifier = Modifier.height(DesignTokens.Spacing.SM))
+                                ShimmerBox(
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.7f)
+                                        .height(14.dp)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                ShimmerBox(
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.4f)
+                                        .height(10.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
             // Grid
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
@@ -317,6 +360,7 @@ fun ExerciseLibraryScreen(onBack: () -> Unit, onUpload: () -> Unit) {
                     }
                 }
             }
+            } // end else (isLoading)
         }
     }
 }

@@ -41,6 +41,7 @@ import com.srcardiocare.ui.screens.doctor.AddPatientScreen
 import com.srcardiocare.ui.screens.doctor.PatientProfileScreen
 import com.srcardiocare.ui.screens.doctor.AdminDoctorPatientsScreen
 import com.srcardiocare.ui.screens.doctor.AdminPatientAssignmentsScreen
+import com.srcardiocare.ui.screens.doctor.EditAssignmentScreen
 import com.srcardiocare.ui.screens.exercises.ExerciseLibraryScreen
 import com.srcardiocare.ui.screens.video.VideoUploadScreen
 import com.srcardiocare.ui.screens.schedule.ScheduleScreen
@@ -117,6 +118,9 @@ sealed class Route(val path: String) {
     }
     object AdminPatientAssignments : Route("admin/patient/{patientId}/assignments") {
         fun createPath(patientId: String) = "admin/patient/$patientId/assignments"
+    }
+    object EditAssignment : Route("doctor/assignment/{assignmentId}/edit") {
+        fun createPath(assignmentId: String) = "doctor/assignment/$assignmentId/edit"
     }
 }
 
@@ -309,7 +313,10 @@ fun SRCardiocareNavGraph(
                 patientId = patientId,
                 onBack = { navController.popBackStack() },
                 onVideoUpload = { navController.navigate(Route.VideoUpload.path) },
-                onHistoryTap = { navController.navigate(Route.PatientHistory.createPath(patientId)) }
+                onHistoryTap = { navController.navigate(Route.PatientHistory.createPath(patientId)) },
+                onManageAssignments = {
+                    navController.navigate(Route.AdminPatientAssignments.createPath(patientId))
+                }
             )
         }
 
@@ -490,7 +497,23 @@ fun SRCardiocareNavGraph(
             val patientId = backStackEntry.arguments?.getString("patientId") ?: ""
             AdminPatientAssignmentsScreen(
                 patientId = patientId,
+                onEditAssignment = { assignmentId ->
+                    navController.navigate(Route.EditAssignment.createPath(assignmentId))
+                },
                 onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(
+            route = Route.EditAssignment.path,
+            arguments = listOf(navArgument("assignmentId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val assignmentId = backStackEntry.arguments?.getString("assignmentId") ?: ""
+            EditAssignmentScreen(
+                assignmentId = assignmentId,
+                onBack = { navController.popBackStack() },
+                onSaved = { navController.popBackStack() },
+                onDeleted = { navController.popBackStack() }
             )
         }
     }
@@ -513,6 +536,7 @@ private fun parseAssignmentFromMap(id: String, data: Map<String, Any?>): Assignm
         dailyFrequency = ((data["dailyFrequency"] as? Number)?.toInt() ?: 3).coerceIn(1, 3),
         sets = (data["sets"] as? Number)?.toInt() ?: 3,
         reps = (data["reps"] as? Number)?.toInt() ?: 10,
+        restSeconds = (data["restSeconds"] as? Number)?.toInt() ?: 45,
         instructions = data["instructions"] as? String,
         completionThreshold = (data["completionThreshold"] as? Number)?.toFloat() ?: 0.8f,
         isActive = data["isActive"] as? Boolean ?: true,

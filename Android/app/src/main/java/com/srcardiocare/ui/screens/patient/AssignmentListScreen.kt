@@ -23,8 +23,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.data.model.*
+import com.srcardiocare.ui.components.SkeletonListRow
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -148,7 +150,7 @@ fun AssignmentListScreen(
             errorMessage = null
 
         } catch (e: Exception) {
-            errorMessage = e.message ?: "Failed to load assignments"
+            errorMessage = ErrorHandler.getDisplayMessage(e, "load assignments")
         }
         isLoading = false
         isRefreshing = false
@@ -197,16 +199,9 @@ fun AssignmentListScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = DesignTokens.Spacing.XXXL)
             ) {
-                // Loading state
+                // Loading state - skeleton list
                 if (isLoading) {
-                    item {
-                        Box(
-                            modifier = Modifier.fillMaxWidth().padding(DesignTokens.Spacing.XXL),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(color = DesignTokens.Colors.Primary)
-                        }
-                    }
+                    items(5) { SkeletonListRow() }
                 }
 
                 // Error state
@@ -576,6 +571,7 @@ private fun parseAssignment(id: String, data: Map<String, Any?>): Assignment {
         dailyFrequency = ((data["dailyFrequency"] as? Number)?.toInt() ?: 3).coerceIn(1, 3),
         sets = (data["sets"] as? Number)?.toInt() ?: 3,
         reps = (data["reps"] as? Number)?.toInt() ?: 10,
+        restSeconds = (data["restSeconds"] as? Number)?.toInt() ?: 45,
         instructions = data["instructions"] as? String,
         completionThreshold = (data["completionThreshold"] as? Number)?.toFloat() ?: 0.8f,
         isActive = data["isActive"] as? Boolean ?: true,

@@ -1,21 +1,22 @@
-// AssignmentWorkoutScreen.kt — Workout player with set-by-set completion and session tracking
+// AssignmentWorkoutScreen.kt — Workout-app style player: DEMO → ACTIVE → REST loop
 package com.srcardiocare.ui.screens.workout
 
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
-import android.content.pm.ActivityInfo
+import android.media.AudioManager
+import android.media.ToneGenerator
 import android.net.Uri
+import android.view.WindowManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -25,32 +26,30 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
-import androidx.media3.common.VideoSize
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.data.model.Assignment
+import com.srcardiocare.ui.components.rememberToast
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
-enum class WorkoutPhase {
-    READY,          // Initial state, ready to start
-    WATCHING,       // Video is playing
-    SET_COMPLETE,   // Just finished a set, showing popup
-    ALL_SETS_DONE,  // All sets done, ready to complete
-    COMPLETING      // Submitting completion
-}
+private enum class Phase { DEMO, ACTIVE, REST, ALL_DONE }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -61,311 +60,131 @@ fun AssignmentWorkoutScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val activity = context as? Activity
+    val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
-    
+    val toast = rememberToast()
+
+    val totalSets = assignment.sets.coerceAtLeast(1)
+    val reps = assignment.reps.coerceAtLeast(1)
+    val restSeconds = assignment.restSeconds.coerceIn(5, 600)
+    val videoUrl = assignment.exerciseVideoUrl
+    val isYoutube = remember(videoUrl) { !extractYoutubeVideoId(videoUrl.orEmpty()).isNullOrBlank() }
+    val playerHtml = remember(videoUrl) { buildPlayerHtml(videoUrl) }
+
     // Session state
     var sessionId by remember { mutableStateOf<String?>(null) }
     var currentSet by remember { mutableIntStateOf(1) }
-    var phase by remember { mutableStateOf(WorkoutPhase.READY) }
-    var videoWatchedSeconds by remember { mutableIntStateOf(0) }
-    var setStartTime by remember { mutableStateOf<Long?>(null) }
-    
-    // UI state
-    var isVideoLoading by remember { mutableStateOf(true) }
-    var isFullscreen by remember { mutableStateOf(false) }
-    var videoOrientation by remember { mutableStateOf(VideoOrientation.LANDSCAPE) }
-    var videoAspectRatio by remember { mutableFloatStateOf(16f / 9f) }
+    var phase by remember { mutableStateOf(Phase.DEMO) }
+    var setStartedAtMs by remember { mutableStateOf<Long?>(null) }
+    var restRemaining by remember { mutableIntStateOf(restSeconds) }
     var showAbandonDialog by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    
-    val totalSets = assignment.sets
-    val videoUrl = assignment.exerciseVideoUrl
-    val isYoutube = remember(videoUrl) { 
-        !extractYoutubeVideoId(videoUrl.orEmpty()).isNullOrBlank() 
-    }
-    val playerHtml = remember(videoUrl) { buildPlayerHtml(videoUrl) }
 
-    // Initialize session on first load
-    LaunchedEffect(Unit) {
+    // Keep screen on for the whole session
+    DisposableEffect(Unit) {
+        activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose { activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
+    }
+
+    // Start session on first composition
+    LaunchedEffect(assignment.id, sessionNumber) {
         try {
-            val today = LocalDate.now().toString()
-            val id = FirebaseService.startSession(
+            sessionId = FirebaseService.startSession(
                 assignmentId = assignment.id,
-                sessionDate = today,
+                sessionDate = LocalDate.now().toString(),
                 sessionNumber = sessionNumber,
                 totalSets = totalSets
             )
-            sessionId = id
         } catch (e: Exception) {
-            errorMessage = "Failed to start session: ${e.message}"
+            errorMessage = ErrorHandler.getDisplayMessage(e, "start session")
         }
     }
 
-    // Track video playback time
-    LaunchedEffect(phase) {
-        if (phase == WorkoutPhase.WATCHING) {
-            setStartTime = System.currentTimeMillis()
-            while (phase == WorkoutPhase.WATCHING) {
-                delay(1000)
-                videoWatchedSeconds++
-            }
-        }
-    }
-
-    // ExoPlayer setup
+    // Looping demo video (muted, no controls)
     val exoPlayer = remember(videoUrl) {
-        if (videoUrl.isNullOrBlank() || isYoutube) {
-            isVideoLoading = false
-            null
-        } else {
-            ExoPlayer.Builder(context).build().apply {
-                setMediaItem(MediaItem.fromUri(videoUrl))
-                prepare()
-                playWhenReady = false // Don't auto-play
-                addListener(object : Player.Listener {
-                    override fun onPlaybackStateChanged(playbackState: Int) {
-                        if (playbackState == Player.STATE_READY) {
-                            isVideoLoading = false
-                        }
-                        // When video ends, mark set as complete
-                        if (playbackState == Player.STATE_ENDED && phase == WorkoutPhase.WATCHING) {
-                            phase = WorkoutPhase.SET_COMPLETE
-                        }
-                    }
-                    
-                    override fun onVideoSizeChanged(videoSize: VideoSize) {
-                        if (videoSize.width > 0 && videoSize.height > 0) {
-                            videoAspectRatio = videoSize.width.toFloat() / videoSize.height.toFloat()
-                            videoOrientation = when {
-                                videoSize.width > videoSize.height -> VideoOrientation.LANDSCAPE
-                                videoSize.height > videoSize.width -> VideoOrientation.PORTRAIT
-                                else -> VideoOrientation.SQUARE
-                            }
-                        }
-                    }
-                })
+        if (videoUrl.isNullOrBlank() || isYoutube) null
+        else ExoPlayer.Builder(context).build().apply {
+            setMediaItem(MediaItem.fromUri(videoUrl))
+            repeatMode = Player.REPEAT_MODE_ALL
+            volume = 0f
+            prepare()
+            playWhenReady = true
+        }
+    }
+    DisposableEffect(exoPlayer) { onDispose { exoPlayer?.release() } }
+
+    // Rest-countdown ticker
+    LaunchedEffect(phase) {
+        if (phase == Phase.REST) {
+            restRemaining = restSeconds
+            while (restRemaining > 0 && phase == Phase.REST) {
+                delay(1000)
+                restRemaining--
+                if (restRemaining == 3) playBeep(short = true)
+            }
+            if (phase == Phase.REST) {
+                playBeep(short = false)
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                currentSet++
+                phase = Phase.ACTIVE
+                setStartedAtMs = System.currentTimeMillis()
             }
         }
     }
 
-    DisposableEffect(exoPlayer) {
-        onDispose { exoPlayer?.release() }
+    BackHandler(enabled = phase != Phase.DEMO || currentSet > 1) {
+        showAbandonDialog = true
     }
 
-    // Handle fullscreen orientation
-    val activity = context as? Activity
-    DisposableEffect(isFullscreen, videoOrientation) {
-        if (isFullscreen) {
-            when (videoOrientation) {
-                VideoOrientation.LANDSCAPE -> {
-                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                }
-                VideoOrientation.PORTRAIT -> {
-                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                }
-                VideoOrientation.SQUARE -> {
-                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                }
-            }
-        } else {
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        }
-        onDispose {
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        }
-    }
-
-    // Handle back button
-    BackHandler(enabled = isFullscreen || phase != WorkoutPhase.READY) {
-        when {
-            isFullscreen -> isFullscreen = false
-            phase != WorkoutPhase.READY -> showAbandonDialog = true
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // SET COMPLETION POPUP
-    // ═══════════════════════════════════════════════════════════════════════════
-    if (phase == WorkoutPhase.SET_COMPLETE) {
-        SetCompletePopup(
-            currentSet = currentSet,
-            totalSets = totalSets,
-            onContinue = {
+    if (showAbandonDialog) {
+        AbandonDialog(
+            onConfirm = {
+                showAbandonDialog = false
                 scope.launch {
-                    // Log the completed set
-                    sessionId?.let { id ->
-                        try {
-                            FirebaseService.logSetCompletion(
-                                sessionId = id,
-                                setNumber = currentSet,
-                                videoWatchedSeconds = videoWatchedSeconds,
-                                repsCompleted = assignment.reps
-                            )
-                        } catch (e: com.srcardiocare.data.firebase.RateLimitExceededException) {
-                            errorMessage = "Rate limit: ${e.message}"
-                        } catch (_: Exception) {
-                            // Silent fail for other errors
-                        }
-                    }
-                    
-                    // Reset for next set
-                    videoWatchedSeconds = 0
-                    
-                    if (currentSet < totalSets) {
-                        currentSet++
-                        phase = WorkoutPhase.READY
-                        exoPlayer?.seekTo(0)
-                        exoPlayer?.pause()
-                    } else {
-                        phase = WorkoutPhase.ALL_SETS_DONE
-                    }
-                }
-            },
-            onFinishLater = {
-                scope.launch {
-                    // Log partial completion and abandon
-                    sessionId?.let { id ->
-                        try {
-                            FirebaseService.logSetCompletion(
-                                sessionId = id,
-                                setNumber = currentSet,
-                                videoWatchedSeconds = videoWatchedSeconds,
-                                repsCompleted = assignment.reps
-                            )
-                            FirebaseService.abandonSession(id)
-                        } catch (e: com.srcardiocare.data.firebase.RateLimitExceededException) {
-                            // Still try to abandon session even if logging failed
-                            try {
-                                FirebaseService.abandonSession(id)
-                            } catch (_: Exception) {}
-                        } catch (_: Exception) {}
-                    }
+                    sessionId?.let { runCatching { FirebaseService.abandonSession(it) } }
+                    toast("Workout abandoned")
                     onBack()
                 }
-            }
+            },
+            onDismiss = { showAbandonDialog = false }
         )
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // ALL SETS DONE POPUP
-    // ═══════════════════════════════════════════════════════════════════════════
-    if (phase == WorkoutPhase.ALL_SETS_DONE) {
-        AllSetsDonePopup(
+    if (phase == Phase.ALL_DONE) {
+        AllDonePopup(
             exerciseName = assignment.exerciseName,
             sessionNumber = sessionNumber,
             onComplete = {
-                phase = WorkoutPhase.COMPLETING
                 scope.launch {
-                    sessionId?.let { id ->
-                        try {
-                            FirebaseService.completeSession(id)
-                        } catch (_: Exception) {}
-                    }
+                    sessionId?.let { runCatching { FirebaseService.completeSession(it) } }
+                    toast("Workout completed")
                     onComplete()
                 }
             }
         )
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // ABANDON SESSION DIALOG
-    // ═══════════════════════════════════════════════════════════════════════════
-    if (showAbandonDialog) {
-        AlertDialog(
-            onDismissRequest = { showAbandonDialog = false },
-            title = { Text("Leave Workout?") },
-            text = { 
-                Text("Your progress for this session will be saved as incomplete. You can continue later today.")
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        scope.launch {
-                            sessionId?.let { id ->
-                                try {
-                                    FirebaseService.abandonSession(id)
-                                } catch (_: Exception) {}
-                            }
-                            onBack()
-                        }
-                    }
-                ) {
-                    Text("Leave", color = DesignTokens.Colors.Error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAbandonDialog = false }) {
-                    Text("Continue Workout")
-                }
-            }
-        )
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // FULLSCREEN MODE
-    // ═══════════════════════════════════════════════════════════════════════════
-    if (isFullscreen) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black)
-        ) {
-            if (exoPlayer != null) {
-                AndroidView(
-                    factory = { ctx ->
-                        PlayerView(ctx).apply {
-                            useController = true
-                            player = exoPlayer
-                        }
-                    },
-                    update = { it.player = exoPlayer },
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else if (isYoutube) {
-                YouTubeWebPlayer(
-                    html = playerHtml,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-
-            IconButton(
-                onClick = { isFullscreen = false },
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(16.dp)
-            ) {
-                Icon(
-                    Icons.Default.FullscreenExit,
-                    contentDescription = "Exit Fullscreen",
-                    tint = Color.White,
-                    modifier = Modifier.size(32.dp)
-                )
-            }
-        }
-        return
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // MAIN UI
-    // ═══════════════════════════════════════════════════════════════════════════
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { 
+                title = {
                     Column {
-                        Text("Session $sessionNumber", fontWeight = FontWeight.Bold)
                         Text(
-                            "Set $currentSet of $totalSets",
-                            style = MaterialTheme.typography.bodySmall,
+                            assignment.exerciseName,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
+                        )
+                        Text(
+                            "Session $sessionNumber  •  Set $currentSet of $totalSets",
+                            style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = { 
-                        if (phase == WorkoutPhase.READY) onBack() else showAbandonDialog = true 
-                    }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    IconButton(onClick = { showAbandonDialog = true }) {
+                        Icon(Icons.Default.Close, contentDescription = "End workout")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -379,413 +198,368 @@ fun AssignmentWorkoutScreen(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
         ) {
-            // Progress indicator
-            SetProgressIndicator(
-                currentSet = currentSet,
-                totalSets = totalSets,
-                modifier = Modifier.padding(horizontal = DesignTokens.Spacing.XL)
-            )
+            SetProgressBar(currentSet, totalSets, phase)
 
-            Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
-
-            // Video player area
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .then(
-                        when (videoOrientation) {
-                            VideoOrientation.LANDSCAPE -> Modifier.aspectRatio(videoAspectRatio.coerceIn(1.2f, 2.5f))
-                            VideoOrientation.PORTRAIT -> Modifier.aspectRatio(videoAspectRatio.coerceIn(0.4f, 0.9f))
-                            VideoOrientation.SQUARE -> Modifier.aspectRatio(1f)
-                        }
-                    )
-            ) {
-                if (videoUrl.isNullOrBlank()) {
-                    // No video placeholder
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                Icons.Default.VideocamOff,
-                                contentDescription = null,
-                                tint = Color.White.copy(alpha = 0.5f),
-                                modifier = Modifier.size(48.dp)
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                "No video available",
-                                color = Color.White.copy(alpha = 0.7f)
-                            )
-                        }
-                    }
-                } else if (isYoutube) {
-                    YouTubeWebPlayer(
-                        html = playerHtml,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    AndroidView(
-                        factory = { ctx ->
-                            PlayerView(ctx).apply {
-                                useController = true
-                                player = exoPlayer
-                            }
-                        },
-                        update = { it.player = exoPlayer },
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-
-                // Loading overlay
-                if (isVideoLoading && !videoUrl.isNullOrBlank()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.7f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(color = Color.White)
-                    }
-                }
-
-                // Fullscreen button shown for all video orientations
-                if (!videoUrl.isNullOrBlank()) {
-                    IconButton(
-                        onClick = { isFullscreen = true },
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(8.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Fullscreen,
-                            contentDescription = "Fullscreen",
-                            tint = Color.White,
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
-                }
-            }
-
-            HorizontalDivider(color = DesignTokens.Colors.NeutralLight)
-
-            // Exercise details
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(DesignTokens.Spacing.XL)
-            ) {
-                Text(
-                    assignment.exerciseName,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-                
-                Spacer(modifier = Modifier.height(4.dp))
-                
-                Text(
-                    "${assignment.sets} Sets • ${assignment.reps} Reps",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                Spacer(modifier = Modifier.height(DesignTokens.Spacing.LG))
-
-                // Current set highlight
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = DesignTokens.Colors.Primary.copy(alpha = 0.1f)
-                    ),
-                    shape = RoundedCornerShape(DesignTokens.Radius.Card)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(DesignTokens.Spacing.MD),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(DesignTokens.Colors.Primary),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                "$currentSet",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                style = MaterialTheme.typography.titleMedium
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(DesignTokens.Spacing.MD))
-                        Column {
-                            Text(
-                                "Set $currentSet of $totalSets",
-                                fontWeight = FontWeight.SemiBold,
-                                color = DesignTokens.Colors.Primary
-                            )
-                            Text(
-                                "${assignment.reps} repetitions",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-
-                // Instructions
-                if (!assignment.instructions.isNullOrBlank()) {
-                    Spacer(modifier = Modifier.height(DesignTokens.Spacing.LG))
-                    Text(
-                        "Instructions",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(modifier = Modifier.height(DesignTokens.Spacing.XS))
-                    Text(
-                        assignment.instructions,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.weight(1f))
-
-            // Action button
-            Button(
-                onClick = {
-                    when (phase) {
-                        WorkoutPhase.READY -> {
-                            phase = WorkoutPhase.WATCHING
-                            exoPlayer?.play()
-                        }
-                        WorkoutPhase.WATCHING -> {
-                            // Manual finish set (if they don't wait for video to end)
-                            exoPlayer?.pause()
-                            phase = WorkoutPhase.SET_COMPLETE
-                        }
-                        else -> {}
-                    }
-                },
-                enabled = phase == WorkoutPhase.READY || phase == WorkoutPhase.WATCHING,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = DesignTokens.Spacing.XL, vertical = DesignTokens.Spacing.MD)
-                    .height(56.dp),
-                shape = RoundedCornerShape(DesignTokens.Radius.Button),
-                colors = ButtonDefaults.buttonColors(containerColor = DesignTokens.Colors.Primary)
-            ) {
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 when (phase) {
-                    WorkoutPhase.READY -> {
-                        Icon(Icons.Default.PlayArrow, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Start Set $currentSet", fontWeight = FontWeight.SemiBold)
-                    }
-                    WorkoutPhase.WATCHING -> {
-                        Text("Finish Set", fontWeight = FontWeight.SemiBold)
-                    }
-                    WorkoutPhase.COMPLETING -> {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(24.dp),
-                            color = Color.White,
-                            strokeWidth = 2.dp
-                        )
-                    }
-                    else -> {
-                        Text("Please wait...", fontWeight = FontWeight.SemiBold)
-                    }
+                    Phase.DEMO, Phase.ACTIVE -> ExerciseStage(
+                        phase = phase,
+                        videoUrl = videoUrl,
+                        isYoutube = isYoutube,
+                        playerHtml = playerHtml,
+                        exoPlayer = exoPlayer,
+                        currentSet = currentSet,
+                        totalSets = totalSets,
+                        reps = reps,
+                        instructions = assignment.instructions
+                    )
+                    Phase.REST -> RestStage(
+                        remaining = restRemaining,
+                        total = restSeconds,
+                        nextSet = currentSet + 1,
+                        totalSets = totalSets
+                    )
+                    Phase.ALL_DONE -> {}
                 }
             }
 
-            Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+            BottomActionBar(
+                phase = phase,
+                onPrimary = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    when (phase) {
+                        Phase.DEMO -> {
+                            phase = Phase.ACTIVE
+                            setStartedAtMs = System.currentTimeMillis()
+                        }
+                        Phase.ACTIVE -> {
+                            val secs = setStartedAtMs?.let {
+                                ((System.currentTimeMillis() - it) / 1000L).toInt().coerceIn(0, 86400)
+                            } ?: 0
+                            scope.launch {
+                                sessionId?.let { id ->
+                                    runCatching {
+                                        FirebaseService.logSetCompletion(
+                                            sessionId = id,
+                                            setNumber = currentSet,
+                                            videoWatchedSeconds = secs,
+                                            repsCompleted = reps
+                                        )
+                                    }
+                                }
+                            }
+                            phase = if (currentSet < totalSets) Phase.REST else Phase.ALL_DONE
+                        }
+                        Phase.REST -> {
+                            // Skip rest
+                            restRemaining = 0
+                        }
+                        Phase.ALL_DONE -> {}
+                    }
+                }
+            )
         }
+    }
+
+    errorMessage?.let { msg ->
+        Snackbar(
+            modifier = Modifier.padding(DesignTokens.Spacing.MD),
+            action = { TextButton(onClick = { errorMessage = null }) { Text("OK") } }
+        ) { Text(msg) }
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SET PROGRESS INDICATOR
-// ═══════════════════════════════════════════════════════════════════════════════
+// ───────────────────────────────────────────────────────────────────────────────
+// Set progress bar (chip row + thin progress)
+// ───────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun SetProgressIndicator(
-    currentSet: Int,
-    totalSets: Int,
-    modifier: Modifier = Modifier
-) {
+private fun SetProgressBar(currentSet: Int, totalSets: Int, phase: Phase) {
     Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Center
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = DesignTokens.Spacing.XL, vertical = DesignTokens.Spacing.SM),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        repeat(totalSets) { index ->
-            val setNumber = index + 1
-            val isCompleted = setNumber < currentSet
-            val isCurrent = setNumber == currentSet
-            
+        repeat(totalSets) { i ->
+            val setNum = i + 1
+            val done = setNum < currentSet || (setNum == currentSet && phase == Phase.REST)
+            val active = setNum == currentSet && phase != Phase.REST
             Box(
                 modifier = Modifier
-                    .size(if (isCurrent) 36.dp else 28.dp)
-                    .clip(CircleShape)
+                    .weight(1f)
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(50))
                     .background(
                         when {
-                            isCompleted -> DesignTokens.Colors.Success
-                            isCurrent -> DesignTokens.Colors.Primary
-                            else -> DesignTokens.Colors.NeutralLight
+                            done -> DesignTokens.Colors.Success
+                            active -> DesignTokens.Colors.Primary
+                            else -> MaterialTheme.colorScheme.surfaceVariant
                         }
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                if (isCompleted) {
-                    Icon(
-                        Icons.Default.Check,
-                        contentDescription = "Completed",
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp)
                     )
-                } else {
-                    Text(
-                        "$setNumber",
-                        color = if (isCurrent) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
-                        style = MaterialTheme.typography.labelMedium
-                    )
-                }
-            }
-            
-            if (index < totalSets - 1) {
-                Box(
-                    modifier = Modifier
-                        .width(24.dp)
-                        .height(3.dp)
-                        .align(Alignment.CenterVertically)
-                        .background(
-                            if (setNumber < currentSet) DesignTokens.Colors.Success
-                            else DesignTokens.Colors.NeutralLight
-                        )
-                )
-            }
+            )
         }
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SET COMPLETE POPUP
-// ═══════════════════════════════════════════════════════════════════════════════
+// ───────────────────────────────────────────────────────────────────────────────
+// DEMO / ACTIVE stage — looping demo + big rep target
+// ───────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun SetCompletePopup(
+private fun ExerciseStage(
+    phase: Phase,
+    videoUrl: String?,
+    isYoutube: Boolean,
+    playerHtml: String,
+    exoPlayer: ExoPlayer?,
     currentSet: Int,
     totalSets: Int,
-    onContinue: () -> Unit,
-    onFinishLater: () -> Unit
+    reps: Int,
+    instructions: String?
 ) {
-    Dialog(
-        onDismissRequest = {},
-        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = DesignTokens.Spacing.XL),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Card(
+        // Video panel (fixed aspect, no fullscreen toggle — keeps UX simple)
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(DesignTokens.Spacing.MD),
-            shape = RoundedCornerShape(DesignTokens.Radius.XXL),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                .aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(DesignTokens.Radius.Card))
+                .background(Color.Black)
         ) {
-            Column(
-                modifier = Modifier.padding(DesignTokens.Spacing.XL),
-                horizontalAlignment = Alignment.CenterHorizontally
+            when {
+                videoUrl.isNullOrBlank() -> NoVideoPlaceholder()
+                isYoutube -> YouTubeWebPlayer(html = playerHtml, modifier = Modifier.fillMaxSize())
+                exoPlayer != null -> AndroidView(
+                    factory = { ctx ->
+                        PlayerView(ctx).apply {
+                            useController = false
+                            player = exoPlayer
+                        }
+                    },
+                    update = { it.player = exoPlayer },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+
+            // Tag in corner: "DEMO" vs "GO"
+            val tagText = if (phase == Phase.ACTIVE) "GO" else "DEMO"
+            val tagColor = if (phase == Phase.ACTIVE) DesignTokens.Colors.Success else DesignTokens.Colors.Primary
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = tagColor,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(DesignTokens.Spacing.SM)
             ) {
-                // Success icon
-                Box(
-                    modifier = Modifier
-                        .size(72.dp)
-                        .clip(CircleShape)
-                        .background(DesignTokens.Colors.Success.copy(alpha = 0.15f)),
-                    contentAlignment = Alignment.Center
+                Text(
+                    tagText,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(DesignTokens.Spacing.LG))
+
+        // Big rep target
+        Text(
+            "$reps",
+            fontSize = 96.sp,
+            fontWeight = FontWeight.Black,
+            color = if (phase == Phase.ACTIVE) DesignTokens.Colors.Success else DesignTokens.Colors.Primary
+        )
+        Text(
+            if (reps == 1) "REP" else "REPS",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 4.sp
+        )
+
+        Spacer(modifier = Modifier.height(DesignTokens.Spacing.SM))
+
+        Text(
+            "Set $currentSet of $totalSets",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+
+        if (!instructions.isNullOrBlank() && phase == Phase.DEMO) {
+            Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+            Card(
+                shape = RoundedCornerShape(DesignTokens.Radius.Base),
+                colors = CardDefaults.cardColors(
+                    containerColor = DesignTokens.Colors.Primary.copy(alpha = 0.08f)
+                )
+            ) {
+                Row(
+                    modifier = Modifier.padding(DesignTokens.Spacing.MD),
+                    verticalAlignment = Alignment.Top
                 ) {
                     Icon(
-                        Icons.Default.CheckCircle,
+                        Icons.Default.Info,
                         contentDescription = null,
-                        tint = DesignTokens.Colors.Success,
-                        modifier = Modifier.size(40.dp)
+                        tint = DesignTokens.Colors.Primary,
+                        modifier = Modifier.size(18.dp)
                     )
-                }
-
-                Spacer(modifier = Modifier.height(DesignTokens.Spacing.LG))
-
-                Text(
-                    "Set $currentSet Complete!",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center
-                )
-
-                Spacer(modifier = Modifier.height(DesignTokens.Spacing.SM))
-
-                if (currentSet < totalSets) {
+                    Spacer(modifier = Modifier.width(DesignTokens.Spacing.SM))
                     Text(
-                        "Great work! Ready for set ${currentSet + 1}?",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center
+                        instructions,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
-                } else {
-                    Text(
-                        "Amazing! You've completed all $totalSets sets!",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(DesignTokens.Spacing.XL))
-
-                // Continue button
-                Button(
-                    onClick = onContinue,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp),
-                    shape = RoundedCornerShape(DesignTokens.Radius.Button),
-                    colors = ButtonDefaults.buttonColors(containerColor = DesignTokens.Colors.Primary)
-                ) {
-                    Text(
-                        if (currentSet < totalSets) "Continue to Set ${currentSet + 1}" else "Complete Workout",
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-
-                // Finish later option (only if more sets remain)
-                if (currentSet < totalSets) {
-                    Spacer(modifier = Modifier.height(DesignTokens.Spacing.SM))
-                    TextButton(onClick = onFinishLater) {
-                        Text(
-                            "Finish Later",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
                 }
             }
         }
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// ALL SETS DONE POPUP
-// ═══════════════════════════════════════════════════════════════════════════════
+@Composable
+private fun NoVideoPlaceholder() {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                Icons.Default.VideocamOff,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.5f),
+                modifier = Modifier.size(48.dp)
+            )
+            Spacer(modifier = Modifier.height(DesignTokens.Spacing.SM))
+            Text("No demo video", color = Color.White.copy(alpha = 0.7f))
+        }
+    }
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+// REST stage — ring countdown
+// ───────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun AllSetsDonePopup(
-    exerciseName: String,
-    sessionNumber: Int,
-    onComplete: () -> Unit
-) {
+private fun RestStage(remaining: Int, total: Int, nextSet: Int, totalSets: Int) {
+    val progress by animateFloatAsState(
+        targetValue = if (total > 0) remaining.toFloat() / total else 0f,
+        label = "restRing"
+    )
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            "REST",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            letterSpacing = 6.sp
+        )
+        Spacer(modifier = Modifier.height(DesignTokens.Spacing.LG))
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(220.dp)) {
+            CircularProgressIndicator(
+                progress = { progress },
+                modifier = Modifier.fillMaxSize(),
+                strokeWidth = 14.dp,
+                color = DesignTokens.Colors.Primary,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    "$remaining",
+                    fontSize = 80.sp,
+                    fontWeight = FontWeight.Black,
+                    color = DesignTokens.Colors.Primary
+                )
+                Text(
+                    "sec",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(DesignTokens.Spacing.XL))
+        Text(
+            "Up next",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            letterSpacing = 2.sp
+        )
+        Text(
+            "Set $nextSet of $totalSets",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+// Bottom primary action
+// ───────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun BottomActionBar(phase: Phase, onPrimary: () -> Unit) {
+    val (label, container, icon) = when (phase) {
+        Phase.DEMO -> Triple("I'm Ready", DesignTokens.Colors.Primary, Icons.Default.PlayArrow)
+        Phase.ACTIVE -> Triple("Set Done", DesignTokens.Colors.Success, Icons.Default.Check)
+        Phase.REST -> Triple("Skip Rest", MaterialTheme.colorScheme.secondary, Icons.Default.SkipNext)
+        Phase.ALL_DONE -> Triple("Finishing…", DesignTokens.Colors.Success, Icons.Default.Check)
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.background,
+        shadowElevation = 8.dp
+    ) {
+        Button(
+            onClick = onPrimary,
+            enabled = phase != Phase.ALL_DONE,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(
+                    horizontal = DesignTokens.Spacing.XL,
+                    vertical = DesignTokens.Spacing.MD
+                )
+                .height(64.dp),
+            shape = RoundedCornerShape(DesignTokens.Radius.Button),
+            colors = ButtonDefaults.buttonColors(containerColor = container)
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(26.dp))
+            Spacer(modifier = Modifier.width(DesignTokens.Spacing.SM))
+            Text(label, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+        }
+    }
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+// Dialogs
+// ───────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun AbandonDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("End workout?") },
+        text = { Text("Your progress so far will be saved as incomplete. You can start a new session later today.") },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text("End", color = DesignTokens.Colors.Error)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Keep going") }
+        }
+    )
+}
+
+@Composable
+private fun AllDonePopup(exerciseName: String, sessionNumber: Int, onComplete: () -> Unit) {
     Dialog(
         onDismissRequest = {},
         properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
@@ -801,7 +575,6 @@ private fun AllSetsDonePopup(
                 modifier = Modifier.padding(DesignTokens.Spacing.XL),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Celebration icon
                 Box(
                     modifier = Modifier
                         .size(80.dp)
@@ -809,40 +582,34 @@ private fun AllSetsDonePopup(
                         .background(DesignTokens.Colors.Success.copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Default.EmojiEvents, contentDescription = null, modifier = Modifier.size(40.dp), tint = DesignTokens.Colors.Success)
+                    Icon(
+                        Icons.Default.EmojiEvents,
+                        contentDescription = null,
+                        modifier = Modifier.size(40.dp),
+                        tint = DesignTokens.Colors.Success
+                    )
                 }
-
                 Spacer(modifier = Modifier.height(DesignTokens.Spacing.LG))
-
                 Text(
-                    "Workout Complete!",
-                    style = MaterialTheme.typography.headlineMedium,
+                    "Workout Complete",
+                    style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
                     color = DesignTokens.Colors.Success
                 )
-
                 Spacer(modifier = Modifier.height(DesignTokens.Spacing.SM))
-
                 Text(
                     exerciseName,
                     style = MaterialTheme.typography.titleMedium,
-                    textAlign = TextAlign.Center,
-                    color = MaterialTheme.colorScheme.onSurface
+                    textAlign = TextAlign.Center
                 )
-
-                Spacer(modifier = Modifier.height(DesignTokens.Spacing.XS))
-
                 Text(
-                    "Session $sessionNumber completed",
+                    "Session $sessionNumber done",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
                 )
-
                 Spacer(modifier = Modifier.height(DesignTokens.Spacing.XL))
-
-                // Complete button
                 Button(
                     onClick = onComplete,
                     modifier = Modifier
@@ -860,9 +627,17 @@ private fun AllSetsDonePopup(
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// HELPER COMPONENTS
-// ═══════════════════════════════════════════════════════════════════════════════
+// ───────────────────────────────────────────────────────────────────────────────
+// Sound + WebView helpers
+// ───────────────────────────────────────────────────────────────────────────────
+
+private fun playBeep(short: Boolean) {
+    runCatching {
+        val tone = if (short) ToneGenerator.TONE_PROP_BEEP else ToneGenerator.TONE_PROP_BEEP2
+        val gen = ToneGenerator(AudioManager.STREAM_MUSIC, 80)
+        gen.startTone(tone, if (short) 120 else 350)
+    }
+}
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -889,15 +664,13 @@ private fun buildPlayerHtml(videoUrl: String?): String {
             </body></html>
         """.trimIndent()
     }
-
     val videoId = extractYoutubeVideoId(videoUrl)
     return if (videoId != null) {
         """
             <html><body style="margin:0;padding:0;background:#000;">
               <iframe width="100%" height="100%"
-                src="https://www.youtube.com/embed/$videoId?playsinline=1&rel=0"
-                frameborder="0" allowfullscreen
-                allow="autoplay; encrypted-media; picture-in-picture">
+                src="https://www.youtube.com/embed/$videoId?playsinline=1&rel=0&autoplay=1&mute=1&loop=1&playlist=$videoId&controls=0&modestbranding=1"
+                frameborder="0" allow="autoplay; encrypted-media; picture-in-picture">
               </iframe>
             </body></html>
         """.trimIndent()
@@ -905,7 +678,7 @@ private fun buildPlayerHtml(videoUrl: String?): String {
         val escapedUrl = videoUrl.replace("&", "&amp;")
         """
             <html><body style="margin:0;padding:0;background:#000;">
-              <video width="100%" height="100%" controls playsinline>
+              <video width="100%" height="100%" autoplay loop muted playsinline>
                 <source src="$escapedUrl" type="video/mp4" />
               </video>
             </body></html>
@@ -918,9 +691,8 @@ private fun extractYoutubeVideoId(url: String): String? {
         val uri = Uri.parse(url)
         when {
             uri.host?.contains("youtu.be") == true -> uri.lastPathSegment
-            uri.host?.contains("youtube.com") == true && uri.path?.startsWith("/embed/") == true -> {
+            uri.host?.contains("youtube.com") == true && uri.path?.startsWith("/embed/") == true ->
                 uri.pathSegments.getOrNull(1)
-            }
             uri.host?.contains("youtube.com") == true -> uri.getQueryParameter("v")
             else -> null
         }

@@ -13,7 +13,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.ui.components.rememberToast
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
 
@@ -29,6 +31,7 @@ private data class AccessUser(
 @Composable
 fun AdminSettingsScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
+    val toast = rememberToast()
 
     var sessionLocksEnabled by remember { mutableStateOf(true) }
     var blockAllPatients by remember { mutableStateOf(false) }
@@ -70,7 +73,7 @@ fun AdminSettingsScreen(onBack: () -> Unit) {
                 )
             }.sortedWith(compareBy<AccessUser> { it.role }.thenBy { it.name })
         } catch (e: Exception) {
-            statusMessage = "Failed to load: ${e.message}"
+            statusMessage = ErrorHandler.getDisplayMessage(e, "load settings")
         }
         isGlobalSettingsLoading = false
         isAccessUsersLoading = false
@@ -132,8 +135,10 @@ fun AdminSettingsScreen(onBack: () -> Unit) {
                                     try {
                                         FirebaseService.updateAccessControlSettings(sessionLocksEnabled = enabled)
                                         statusMessage = "Session lock policy updated."
+                                        toast("Session lock policy updated")
                                     } catch (e: Exception) {
-                                        statusMessage = "Failed: ${e.message}"
+                                        statusMessage = ErrorHandler.getDisplayMessage(e, "update setting")
+                                        toast("Failed to update policy")
                                     }
                                 }
                             }
@@ -149,8 +154,10 @@ fun AdminSettingsScreen(onBack: () -> Unit) {
                                     try {
                                         FirebaseService.updateAccessControlSettings(blockAllPatients = blocked)
                                         statusMessage = if (blocked) "All patient API access is blocked." else "Patient API access restored."
+                                        toast(if (blocked) "All patients blocked" else "All patients unblocked")
                                     } catch (e: Exception) {
-                                        statusMessage = "Failed: ${e.message}"
+                                        statusMessage = ErrorHandler.getDisplayMessage(e, "update setting")
+                                        toast("Failed to update setting")
                                     }
                                 }
                             }
@@ -166,8 +173,10 @@ fun AdminSettingsScreen(onBack: () -> Unit) {
                                     try {
                                         FirebaseService.updateAccessControlSettings(blockAllDoctors = blocked)
                                         statusMessage = if (blocked) "All doctor API access is blocked." else "Doctor API access restored."
+                                        toast(if (blocked) "All doctors blocked" else "All doctors unblocked")
                                     } catch (e: Exception) {
-                                        statusMessage = "Failed: ${e.message}"
+                                        statusMessage = ErrorHandler.getDisplayMessage(e, "update setting")
+                                        toast("Failed to update setting")
                                     }
                                 }
                             }
@@ -285,8 +294,10 @@ fun AdminSettingsScreen(onBack: () -> Unit) {
                                                             reason = if (blocked) "Blocked from admin settings" else null
                                                         )
                                                         statusMessage = if (blocked) "${user.name} access blocked." else "${user.name} access restored."
+                                                        toast(if (blocked) "${user.name} blocked" else "${user.name} unblocked")
                                                     } catch (e: Exception) {
-                                                        statusMessage = "Failed to update ${user.name}: ${e.message}"
+                                                        statusMessage = ErrorHandler.getDisplayMessage(e, "update ${user.name}")
+                                                        toast("Failed to update ${user.name}")
                                                         load()
                                                     }
                                                     updatingUserIds = updatingUserIds - user.id

@@ -21,7 +21,9 @@ import androidx.compose.ui.unit.dp
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.ui.components.SkeletonListRow
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -77,7 +79,7 @@ fun FeedbackDashboardScreen(
                 }.awaitAll()
             }.sortedByDescending { it.lastMessageAtMs }
         } catch (e: Exception) {
-            errorMessage = e.message ?: "Failed to load patients"
+            errorMessage = ErrorHandler.getDisplayMessage(e, "load patients")
         }
         isLoading = false
     }
@@ -102,8 +104,13 @@ fun FeedbackDashboardScreen(
         containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
         if (isLoading) {
-            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = DesignTokens.Colors.Primary)
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                contentPadding = PaddingValues(vertical = DesignTokens.Spacing.MD)
+            ) {
+                items(6) { SkeletonListRow() }
             }
         } else if (errorMessage != null) {
             Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {

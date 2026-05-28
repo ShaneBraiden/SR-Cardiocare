@@ -32,13 +32,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.srcardiocare.R
 import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.core.security.InputValidator
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.ui.components.SkeletonDonutChart
+import com.srcardiocare.ui.components.SkeletonStatsCard
 import com.srcardiocare.ui.components.StatItem
 import com.srcardiocare.ui.components.StatItemStyle
 import com.srcardiocare.ui.theme.DesignTokens
@@ -98,8 +103,6 @@ fun DoctorDashboardScreen(
     var userRole by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    // Reload trigger — incremented to trigger LaunchedEffect re-run
-    var reloadKey by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
 
     // Data loading function
@@ -266,8 +269,18 @@ fun DoctorDashboardScreen(
         isRefreshing = false
     }
 
-    LaunchedEffect(reloadKey) {
-        loadData()
+    LaunchedEffect(Unit) { loadData() }
+
+    // Auto-refresh when returning to the dashboard (e.g. after assigning a workout)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                scope.launch { loadData() }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     val filteredUsers = if (searchQuery.isBlank()) allUsers else allUsers.filter {
@@ -280,6 +293,9 @@ fun DoctorDashboardScreen(
     val patientCount = allUsers.count { it.role == "patient" }
     val doctorCount = allUsers.count { it.role == "doctor" }
     val onlineCount = allUsers.count { it.isOnline }
+    val onTrackCount = allUsers.count { it.role == "patient" && it.status == UserStatus.ON_TRACK }
+    val attentionCount = allUsers.count { it.role == "patient" && it.status == UserStatus.NEEDS_ATTENTION }
+    val notAssignedCount = allUsers.count { it.role == "patient" && it.status == UserStatus.INACTIVE }
 
     Scaffold(
         topBar = {
@@ -335,6 +351,22 @@ fun DoctorDashboardScreen(
                     }
                 }
 
+                // Loading skeletons for stats + chart
+                if (isLoading && errorMessage == null) {
+                    item {
+                        Box(modifier = Modifier.padding(horizontal = DesignTokens.Spacing.XL)) {
+                            SkeletonStatsCard(itemCount = 4)
+                        }
+                        Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+                    }
+                    item {
+                        Box(modifier = Modifier.padding(horizontal = DesignTokens.Spacing.XL)) {
+                            SkeletonDonutChart(diameter = 180.dp)
+                        }
+                        Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+                    }
+                }
+
                 // Stats summary card
                 if (!isLoading && errorMessage == null) {
                     item {
@@ -345,21 +377,27 @@ fun DoctorDashboardScreen(
                             shape = RoundedCornerShape(DesignTokens.Radius.Card),
                             colors = CardDefaults.cardColors(containerColor = DesignTokens.Colors.Primary)
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(DesignTokens.Spacing.XL),
-                                horizontalArrangement = Arrangement.SpaceAround
-                            ) {
+                            Column(modifier = Modifier.padding(DesignTokens.Spacing.XL)) {
                                 if (userRole == "admin") {
-                                    StatItem(value = allUsers.size.toString(), label = "Total Users", style = StatItemStyle.LIGHT)
-                                    StatItem(value = patientCount.toString(), label = "Patients", style = StatItemStyle.LIGHT)
-                                    StatItem(value = doctorCount.toString(), label = "Doctors", style = StatItemStyle.LIGHT)
-                                    StatItem(value = onlineCount.toString(), label = "Online", style = StatItemStyle.LIGHT)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceAround
+                                    ) {
+                                        StatItem(value = allUsers.size.toString(), label = "Total Users", style = StatItemStyle.LIGHT)
+                                        StatItem(value = patientCount.toString(), label = "Patients", style = StatItemStyle.LIGHT)
+                                        StatItem(value = doctorCount.toString(), label = "Doctors", style = StatItemStyle.LIGHT)
+                                        StatItem(value = onlineCount.toString(), label = "Online", style = StatItemStyle.LIGHT)
+                                    }
                                 } else {
-                                    StatItem(value = allUsers.size.toString(), label = "Total Patients", style = StatItemStyle.LIGHT)
-                                    StatItem(value = allUsers.count { it.status == UserStatus.ON_TRACK }.toString(), label = "On Track", style = StatItemStyle.LIGHT)
-                                    StatItem(value = onlineCount.toString(), label = "Online Now", style = StatItemStyle.LIGHT)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceAround
+                                    ) {
+                                        StatItem(value = patientCount.toString(), label = "Patients", style = StatItemStyle.LIGHT)
+                                        StatItem(value = onTrackCount.toString(), label = "On Track", style = StatItemStyle.LIGHT)
+                                        StatItem(value = attentionCount.toString(), label = "Attention", style = StatItemStyle.LIGHT)
+                                        StatItem(value = notAssignedCount.toString(), label = "Not Assigned", style = StatItemStyle.LIGHT)
+                                    }
                                 }
                             }
                         }

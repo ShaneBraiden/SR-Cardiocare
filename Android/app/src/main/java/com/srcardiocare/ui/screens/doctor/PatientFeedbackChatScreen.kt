@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import com.google.firebase.Timestamp
 import com.srcardiocare.core.security.InputValidator
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.ui.components.SkeletonListRow
 import com.srcardiocare.ui.theme.DesignTokens
 import java.text.SimpleDateFormat
 import java.util.*
@@ -130,8 +131,11 @@ private fun FeedbackTabView(patientId: String, patientName: String) {
     }
 
     if (isLoading) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(color = DesignTokens.Colors.Primary)
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(vertical = DesignTokens.Spacing.MD)
+        ) {
+            items(5) { SkeletonListRow() }
         }
     } else if (feedbacks.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

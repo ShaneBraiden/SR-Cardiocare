@@ -28,6 +28,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.google.firebase.Timestamp
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.ui.components.SkeletonBarChart
+import com.srcardiocare.ui.components.SkeletonDonutChart
+import com.srcardiocare.ui.components.SkeletonStatsCard
 import com.srcardiocare.ui.theme.DesignTokens
 import java.time.Instant
 import java.time.LocalDate
@@ -56,7 +59,8 @@ fun AnalyticsScreen(onBack: () -> Unit) {
     var complianceText by remember { mutableStateOf("--") }
     var streakText by remember { mutableStateOf("--") }
     var feedbacks by remember { mutableStateOf<List<Map<String, Any?>>>(emptyList()) }
-    
+    var isLoading by remember { mutableStateOf(true) }
+
     // Donut chart data
     var completedWorkouts by remember { mutableIntStateOf(0) }
     var inProgressWorkouts by remember { mutableIntStateOf(0) }
@@ -123,8 +127,9 @@ fun AnalyticsScreen(onBack: () -> Unit) {
             try {
                 feedbacks = FirebaseService.fetchPatientFeedbacks(uid).map { it.second }
             } catch (e: Exception) { }
-            
+
         } catch (_: Exception) { }
+        isLoading = false
     }
     
     val segments = listOf(
@@ -167,6 +172,16 @@ fun AnalyticsScreen(onBack: () -> Unit) {
 
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.XL))
 
+            if (isLoading) {
+                SkeletonDonutChart(diameter = 200.dp)
+                Spacer(modifier = Modifier.height(DesignTokens.Spacing.XL))
+                SkeletonStatsCard(itemCount = 2)
+                Spacer(modifier = Modifier.height(DesignTokens.Spacing.XL))
+                SkeletonBarChart(barCount = 7)
+                Spacer(modifier = Modifier.height(DesignTokens.Spacing.XL))
+                SkeletonBarChart(barCount = 7, chartHeight = 80.dp)
+                Spacer(modifier = Modifier.height(DesignTokens.Spacing.XXL))
+            } else {
             // Donut Chart Card
             Card(
                 shape = RoundedCornerShape(DesignTokens.Radius.XL),
@@ -189,9 +204,9 @@ fun AnalyticsScreen(onBack: () -> Unit) {
                         },
                         modifier = Modifier.size(200.dp)
                     )
-                    
+
                     Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
-                    
+
                     // Legend
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -202,7 +217,7 @@ fun AnalyticsScreen(onBack: () -> Unit) {
                                 color = segment.color,
                                 label = segment.label,
                                 isSelected = selectedSegment == segment,
-                                onClick = { 
+                                onClick = {
                                     selectedSegment = if (selectedSegment == segment) null else segment
                                 }
                             )
@@ -339,6 +354,7 @@ fun AnalyticsScreen(onBack: () -> Unit) {
                     }
                 }
             }
+            } // end else (isLoading)
 
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.XXL))
         }

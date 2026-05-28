@@ -130,6 +130,7 @@ data class Assignment(
     val dailyFrequency: Int = 3,        // How many times per day (doctor sets this)
     val sets: Int = 3,                  // Sets per session
     val reps: Int = 10,                 // Reps per set
+    val restSeconds: Int = 45,          // Rest between sets
     val instructions: String? = null,   // Doctor's notes for patient
     val completionThreshold: Float = 0.8f, // 0.0-1.0, what % = "fully completed"
     val isActive: Boolean = true,       // Soft delete / reassignment

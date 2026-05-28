@@ -4,13 +4,16 @@ package com.srcardiocare.ui.screens.doctor
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
@@ -22,14 +25,22 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import com.srcardiocare.core.push.NotificationEvent
+import com.srcardiocare.core.push.Notifier
+import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.core.security.InputValidator
 import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.Duration
+
+enum class PatientFilter { ALL, NOT_ASSIGNED, ON_TRACK, ATTENTION }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -44,8 +55,11 @@ fun PatientListScreen(
     var isRefreshing by remember { mutableStateOf(false) }
     var userRole by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var selectedFilter by remember { mutableStateOf(PatientFilter.ALL) }
+    var isReminding by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     suspend fun loadData() {
         try {
@@ -128,7 +142,7 @@ fun PatientListScreen(
 
             errorMessage = null
         } catch (e: Exception) {
-            errorMessage = e.message ?: "Failed to load users"
+            errorMessage = ErrorHandler.getDisplayMessage(e, "load users")
         }
         isLoading = false
         isRefreshing = false
@@ -136,9 +150,32 @@ fun PatientListScreen(
 
     LaunchedEffect(Unit) { loadData() }
 
-    val filteredUsers = remember(allUsers, searchQuery) {
-        if (searchQuery.isBlank()) allUsers
-        else allUsers.filter { it.name.contains(searchQuery, ignoreCase = true) || it.subtitle.contains(searchQuery, ignoreCase = true) }
+    // Auto-refresh when returning from patient profile / assignment screens
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                scope.launch { loadData() }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    val patients = remember(allUsers) { allUsers.filter { it.role == "patient" } }
+    val notAssignedCount = remember(patients) { patients.count { it.status == UserStatus.INACTIVE } }
+    val onTrackCount = remember(patients) { patients.count { it.status == UserStatus.ON_TRACK } }
+    val attentionCount = remember(patients) { patients.count { it.status == UserStatus.NEEDS_ATTENTION } }
+
+    val filteredUsers = remember(allUsers, searchQuery, selectedFilter) {
+        val byFilter = when (selectedFilter) {
+            PatientFilter.ALL -> allUsers
+            PatientFilter.NOT_ASSIGNED -> patients.filter { it.status == UserStatus.INACTIVE }
+            PatientFilter.ON_TRACK -> patients.filter { it.status == UserStatus.ON_TRACK }
+            PatientFilter.ATTENTION -> patients.filter { it.status == UserStatus.NEEDS_ATTENTION }
+        }
+        if (searchQuery.isBlank()) byFilter
+        else byFilter.filter { it.name.contains(searchQuery, ignoreCase = true) || it.subtitle.contains(searchQuery, ignoreCase = true) }
     }
 
     val screenTitle = if (userRole == "admin") "All Users" else "Patients"
@@ -154,7 +191,8 @@ fun PatientListScreen(
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         PullToRefreshBox(
             isRefreshing = isRefreshing,
@@ -188,6 +226,104 @@ fun PatientListScreen(
                     )
                 }
 
+                // Filter chips
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = DesignTokens.Spacing.XL, vertical = DesignTokens.Spacing.XS),
+                        horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.SM)
+                    ) {
+                        PatientFilterChip(
+                            label = "All",
+                            count = if (userRole == "admin") allUsers.size else patients.size,
+                            selected = selectedFilter == PatientFilter.ALL,
+                            onClick = { selectedFilter = PatientFilter.ALL }
+                        )
+                        PatientFilterChip(
+                            label = "Not Assigned",
+                            count = notAssignedCount,
+                            selected = selectedFilter == PatientFilter.NOT_ASSIGNED,
+                            onClick = { selectedFilter = PatientFilter.NOT_ASSIGNED },
+                            accent = DesignTokens.Colors.NeutralDark
+                        )
+                        PatientFilterChip(
+                            label = "On Track",
+                            count = onTrackCount,
+                            selected = selectedFilter == PatientFilter.ON_TRACK,
+                            onClick = { selectedFilter = PatientFilter.ON_TRACK },
+                            accent = DesignTokens.Colors.Success
+                        )
+                        PatientFilterChip(
+                            label = "Attention",
+                            count = attentionCount,
+                            selected = selectedFilter == PatientFilter.ATTENTION,
+                            onClick = { selectedFilter = PatientFilter.ATTENTION },
+                            accent = DesignTokens.Colors.Warning
+                        )
+                    }
+                }
+
+                // Remind All banner — only shown for Attention filter with patients to nudge
+                if (selectedFilter == PatientFilter.ATTENTION && filteredUsers.isNotEmpty()) {
+                    item {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = DesignTokens.Spacing.XL, vertical = DesignTokens.Spacing.SM),
+                            shape = RoundedCornerShape(DesignTokens.Radius.Card),
+                            colors = CardDefaults.cardColors(containerColor = DesignTokens.Colors.Warning.copy(alpha = 0.10f))
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(DesignTokens.Spacing.MD),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.NotificationsActive,
+                                    contentDescription = null,
+                                    tint = DesignTokens.Colors.Warning,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                                Spacer(modifier = Modifier.width(DesignTokens.Spacing.MD))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("${filteredUsers.size} need a nudge", fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        "Send a workout reminder to each patient in this list",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Button(
+                                    onClick = {
+                                        val recipients = filteredUsers.map { it.id }
+                                        scope.launch {
+                                            isReminding = true
+                                            recipients.forEach { pid ->
+                                                Notifier.send(NotificationEvent.WorkoutReminder(patientId = pid))
+                                            }
+                                            isReminding = false
+                                            snackbarHostState.showSnackbar(
+                                                "Reminder sent to ${recipients.size} patient${if (recipients.size != 1) "s" else ""}"
+                                            )
+                                        }
+                                    },
+                                    enabled = !isReminding,
+                                    colors = ButtonDefaults.buttonColors(containerColor = DesignTokens.Colors.Warning)
+                                ) {
+                                    if (isReminding) {
+                                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                                    } else {
+                                        Text("Remind All", color = Color.White, fontWeight = FontWeight.SemiBold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Count header
                 item {
                     Row(
@@ -196,8 +332,14 @@ fun PatientListScreen(
                             .padding(horizontal = DesignTokens.Spacing.XL, vertical = DesignTokens.Spacing.SM),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
+                        val headerLabel = when (selectedFilter) {
+                            PatientFilter.ALL -> if (userRole == "admin") "All Users" else "Patient Overview"
+                            PatientFilter.NOT_ASSIGNED -> "Not Assigned"
+                            PatientFilter.ON_TRACK -> "On Track Today"
+                            PatientFilter.ATTENTION -> "Needs Attention"
+                        }
                         Text(
-                            if (userRole == "admin") "All Users" else "Patient Overview",
+                            headerLabel,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onBackground
                         )
@@ -251,14 +393,26 @@ fun PatientListScreen(
                             ) {
                                 Icon(Icons.Default.People, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+                                val (emptyTitle, emptySubtitle) = when {
+                                    searchQuery.isNotBlank() ->
+                                        "No users match \"$searchQuery\"" to "Try a different search term"
+                                    selectedFilter == PatientFilter.NOT_ASSIGNED ->
+                                        "No unassigned patients" to "Every patient has at least one exercise"
+                                    selectedFilter == PatientFilter.ON_TRACK ->
+                                        "No one is on track yet today" to "Patients appear here once they finish their daily workouts"
+                                    selectedFilter == PatientFilter.ATTENTION ->
+                                        "Nobody needs a nudge" to "All assigned patients have completed today"
+                                    else ->
+                                        "No users yet" to "Use the dashboard actions to add users"
+                                }
                                 Text(
-                                    if (searchQuery.isBlank()) "No users yet" else "No users match \"$searchQuery\"",
+                                    emptyTitle,
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Spacer(modifier = Modifier.height(DesignTokens.Spacing.XS))
                                 Text(
-                                    if (searchQuery.isBlank()) "Use the dashboard actions to add users" else "Try a different search term",
+                                    emptySubtitle,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -418,6 +572,50 @@ private fun UserListRow(user: UserItem, isAdmin: Boolean, onClick: () -> Unit) {
                     Text(statusText, style = MaterialTheme.typography.labelSmall, color = statusColor, fontWeight = FontWeight.SemiBold)
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun PatientFilterChip(
+    label: String,
+    count: Int,
+    selected: Boolean,
+    onClick: () -> Unit,
+    accent: Color = DesignTokens.Colors.Primary
+) {
+    val containerColor = if (selected) accent else MaterialTheme.colorScheme.surface
+    val contentColor = if (selected) Color.White else MaterialTheme.colorScheme.onSurface
+    val countBg = if (selected) Color.White.copy(alpha = 0.25f) else accent.copy(alpha = 0.15f)
+    val countColor = if (selected) Color.White else accent
+
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(DesignTokens.Radius.Full))
+            .background(containerColor)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            color = contentColor,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(DesignTokens.Radius.Full))
+                .background(countBg)
+                .padding(horizontal = 8.dp, vertical = 2.dp)
+        ) {
+            Text(
+                count.toString(),
+                style = MaterialTheme.typography.labelSmall,
+                color = countColor,
+                fontWeight = FontWeight.Bold
+            )
         }
     }
 }

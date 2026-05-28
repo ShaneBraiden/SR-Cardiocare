@@ -476,6 +476,7 @@ object FirebaseService {
             "dailyFrequency" to 1,
             "sets" to (exerciseData["customSets"] ?: exerciseData["sets"] ?: 3),
             "reps" to (exerciseData["customReps"] ?: exerciseData["reps"] ?: 10),
+            "restSeconds" to (exerciseData["restSeconds"] ?: 45),
             "instructions" to (exerciseData["instructions"] ?: ""),
             "completionThreshold" to 1.0f,
             "isActive" to true
@@ -545,6 +546,7 @@ object FirebaseService {
             "dailyFrequency" to 1,
             "sets" to (exerciseData["customSets"] ?: exerciseData["sets"] ?: 3),
             "reps" to (exerciseData["customReps"] ?: exerciseData["reps"] ?: 10),
+            "restSeconds" to (exerciseData["restSeconds"] ?: 45),
             "instructions" to (exerciseData["instructions"] ?: ""),
             "completionThreshold" to 1.0f,
             "isActive" to true
@@ -1130,6 +1132,14 @@ object FirebaseService {
             .whereEqualTo("isActive", true)
             .get().await()
         return snapshot.documents.map { it.id to (it.data ?: emptyMap()) }
+    }
+
+    /**
+     * Fetch a single assignment by id, regardless of isActive.
+     */
+    suspend fun fetchAssignmentById(assignmentId: String): Map<String, Any?>? {
+        val snap = db.collection("assignments").document(assignmentId).get().await()
+        return if (snap.exists()) snap.data else null
     }
 
     /**

@@ -40,7 +40,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.google.firebase.Timestamp
+import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.ui.components.SkeletonListRow
 import com.srcardiocare.ui.theme.DesignTokens
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -83,7 +85,7 @@ fun AdminLoginLogsScreen(
             errorMessage = null
         } catch (e: Exception) {
             logs = emptyList()
-            errorMessage = e.message ?: "Failed to load login logs"
+            errorMessage = ErrorHandler.getDisplayMessage(e, "load login logs")
         }
         isLoading = false
     }
@@ -109,13 +111,13 @@ fun AdminLoginLogsScreen(
     ) { padding ->
         when {
             isLoading -> {
-                Box(
+                LazyColumn(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(padding),
-                    contentAlignment = Alignment.Center
+                    contentPadding = PaddingValues(vertical = DesignTokens.Spacing.MD)
                 ) {
-                    CircularProgressIndicator(color = DesignTokens.Colors.Primary)
+                    items(8) { SkeletonListRow() }
                 }
             }
 

@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.core.security.InputValidator
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.ui.components.rememberToast
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
 
@@ -37,6 +38,7 @@ fun PostWorkoutFeedbackScreen(
     var patientName by remember { mutableStateOf("Patient") }
 
     val scope = rememberCoroutineScope()
+    val toast = rememberToast()
 
     LaunchedEffect(Unit) {
         val uid = FirebaseService.currentUID ?: return@LaunchedEffect
@@ -240,8 +242,10 @@ fun PostWorkoutFeedbackScreen(
                                 FirebaseService.sendChatMessage(uid, uid, patientName, chatText)
                             }
                             
+                            toast("Feedback submitted")
                             onSubmit()
                         } catch (e: Exception) {
+                            toast("Failed to submit feedback")
                             errorMessage = ErrorHandler.getDisplayMessage(e, "save feedback")
                             isSubmitting = false
                         }
