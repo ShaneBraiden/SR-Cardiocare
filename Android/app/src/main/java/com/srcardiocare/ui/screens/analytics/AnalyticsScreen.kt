@@ -27,7 +27,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.google.firebase.Timestamp
+import com.srcardiocare.data.firebase.FeedbackRepository
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.data.model.PostWorkoutFeedback
 import com.srcardiocare.ui.components.SkeletonBarChart
 import com.srcardiocare.ui.components.SkeletonDonutChart
 import com.srcardiocare.ui.components.SkeletonStatsCard
@@ -58,7 +60,7 @@ fun AnalyticsScreen(onBack: () -> Unit) {
     )) }
     var complianceText by remember { mutableStateOf("--") }
     var streakText by remember { mutableStateOf("--") }
-    var feedbacks by remember { mutableStateOf<List<Map<String, Any?>>>(emptyList()) }
+    var feedbacks by remember { mutableStateOf<List<PostWorkoutFeedback>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
     // Donut chart data
@@ -125,7 +127,7 @@ fun AnalyticsScreen(onBack: () -> Unit) {
             }
             
             try {
-                feedbacks = FirebaseService.fetchPatientFeedbacks(uid).map { it.second }
+                feedbacks = FeedbackRepository.getPatientFeedbacks(uid)
             } catch (e: Exception) { }
 
         } catch (_: Exception) { }
@@ -312,9 +314,9 @@ fun AnalyticsScreen(onBack: () -> Unit) {
                             verticalAlignment = Alignment.Bottom
                         ) {
                             recent.forEach { f ->
-                                val resp = (f["respiratoryDifficulty"] as? Number)?.toFloat() ?: 1f
-                                val stress = f["stress"] as? Boolean ?: false
-                                val strain = f["strain"] as? Boolean ?: false
+                                val resp = f.respiratoryDifficulty.toFloat()
+                                val stress = f.stress
+                                val strain = f.strain
                                 
                                 val barColor = if (stress || strain) DesignTokens.Colors.Warning else DesignTokens.Colors.Success
                                 val barHeight = (resp / 10f * 60f).coerceAtLeast(4f)

@@ -38,8 +38,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.srcardiocare.R
-import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.core.security.InputValidator
 import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.ui.components.SkeletonDonutChart
@@ -47,12 +48,7 @@ import com.srcardiocare.ui.components.SkeletonStatsCard
 import com.srcardiocare.ui.components.StatItem
 import com.srcardiocare.ui.components.StatItemStyle
 import com.srcardiocare.ui.theme.DesignTokens
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
 import java.time.Instant
-import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
@@ -66,14 +62,6 @@ data class UserItem(
     val status: UserStatus,
     val isOnline: Boolean = false,
     val initials: String
-)
-
-private data class PatientWorkoutStat(
-    val patientId: String,
-    val patientName: String,
-    val completedSessions: Int,
-    val totalSessions: Int,
-    val lastCompletedAtMs: Long?
 )
 
 private fun formatWorkoutDate(epochMs: Long?): String {
@@ -94,189 +82,26 @@ fun DoctorDashboardScreen(
     onPatientList: () -> Unit = {},
     onAddPatient: () -> Unit = {}
 ) {
+    val viewModel: DoctorDashboardViewModel = viewModel()
+    val ui by viewModel.state.collectAsStateWithLifecycle()
+    val allUsers = ui.allUsers
+    val workoutStats = ui.workoutStats
+    val doctorName = ui.doctorName
+    val userRole = ui.userRole
+    val isLoading = ui.isLoading
+    val isRefreshing = ui.isRefreshing
+    val errorMessage = ui.errorMessage
+
     var searchQuery by remember { mutableStateOf("") }
-    var allUsers by remember { mutableStateOf<List<UserItem>>(emptyList()) }
-    var workoutStats by remember { mutableStateOf<List<PatientWorkoutStat>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
-    var isRefreshing by remember { mutableStateOf(false) }
-    var doctorName by remember { mutableStateOf("") }
-    var userRole by remember { mutableStateOf("") }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    val scope = rememberCoroutineScope()
-
-    // Data loading function
-    suspend fun loadData() {
-        try {
-            val uid = FirebaseService.currentUID
-            if (uid == null) {
-                errorMessage = "Not signed in. Please restart the app."
-                isLoading = false
-                isRefreshing = false
-                return
-            }
-            val userData = FirebaseService.fetchUser(uid)
-            val firstName = userData["firstName"] as? String ?: ""
-            val lastName  = userData["lastName"]  as? String ?: ""
-            val role      = (userData["role"]     as? String ?: "").lowercase()
-            userRole = role
-            doctorName = when (role) {
-                "doctor" -> "Dr. $lastName"
-                "admin"  -> "$firstName $lastName (Admin)"
-                else     -> "$firstName $lastName"
-            }
-
-            // Admin sees ALL users; doctors see only their assigned patients
-            val users = if (role == "admin") {
-                FirebaseService.fetchAllUsers()
-            } else {
-                FirebaseService.fetchPatients(uid)
-            }
-
-            // First, compute workout stats for patients to determine status
-            val patientRefs = users.filter { (_, data) ->
-                ((data["role"] as? String) ?: "patient").lowercase() == "patient"
-            }
-
-            // Build a map of patient ID to today's assignment status
-            val patientStatusMap = mutableMapOf<String, UserStatus>()
-            val today = LocalDate.now().toString()
-             
-            coroutineScope {
-                patientRefs.map { (patientId, _) ->
-                    async {
-                        try {
-                            val assignments = FirebaseService.fetchAssignments(patientId)
-                            val status = when {
-                                assignments.isEmpty() -> UserStatus.INACTIVE
-                                else -> {
-                                    val completedAssignmentsToday = assignments.count { (assignmentId, assignmentData) ->
-                                        val dailyFrequency = ((assignmentData["dailyFrequency"] as? Number)?.toInt() ?: 3).coerceIn(1, 3)
-                                        val completedSessionsToday = try {
-                                            FirebaseService.fetchSessionsForDate(assignmentId, today).count { (_, sessionData) ->
-                                                ((sessionData["status"] as? String) ?: "").equals("COMPLETED", ignoreCase = true)
-                                            }
-                                        } catch (_: Exception) {
-                                            0
-                                        }
-                                        completedSessionsToday >= dailyFrequency
-                                    }
-                                    if (completedAssignmentsToday == assignments.size) UserStatus.ON_TRACK else UserStatus.NEEDS_ATTENTION
-                                }
-                            }
-                            patientId to status
-                        } catch (_: Exception) {
-                            patientId to UserStatus.INACTIVE
-                        }
-                    }
-                }.awaitAll().forEach { (id, status) ->
-                    patientStatusMap[id] = status
-                }
-            }
-
-            allUsers = users.map { (id, data) ->
-                val fName = data["firstName"] as? String ?: ""
-                val lName = data["lastName"]  as? String ?: ""
-                val userRoleStr = (data["role"] as? String ?: "patient").lowercase()
-                val injuries = (data["injuries"] as? List<*>)?.firstOrNull()?.toString() ?: ""
-                val initials = "${fName.firstOrNull() ?: ""}${lName.firstOrNull() ?: ""}".uppercase()
-
-                val subtitle = when (userRoleStr) {
-                    "admin"  -> "Administrator"
-                    "doctor" -> data["speciality"] as? String ?: "Doctor"
-                    else     -> injuries.ifBlank { "Patient" }
-                }
-
-                // Compute online status from lastSeen
-                val lastSeen = data["lastSeen"]
-                val isOnline = when (lastSeen) {
-                    is com.google.firebase.Timestamp -> {
-                        val seenMs = lastSeen.toDate().time
-                        val nowMs = System.currentTimeMillis()
-                        (nowMs - seenMs) < 5 * 60 * 1000
-                    }
-                    else -> false
-                }
-
-                // Get computed status from map, default to ON_TRACK for non-patients
-                val status = patientStatusMap[id] ?: UserStatus.ON_TRACK
-
-                UserItem(
-                    id       = id,
-                    name     = "$fName $lName".trim().ifBlank { "Unknown" },
-                    subtitle = subtitle,
-                    role     = userRoleStr,
-                    status   = status,
-                    isOnline = isOnline,
-                    initials = initials.ifBlank { "?" }
-                )
-            }
-
-            // Build workout stats for chart (reuse existing pattern)
-            val patientWorkoutRefs = users.filter { (_, data) ->
-                ((data["role"] as? String) ?: "patient").lowercase() == "patient"
-            }
-
-            workoutStats = coroutineScope {
-                patientWorkoutRefs.map { (patientId, data) ->
-                    async {
-                        val fName = data["firstName"] as? String ?: ""
-                        val lName = data["lastName"] as? String ?: ""
-                        val patientName = "$fName $lName".trim().ifBlank { "Unknown" }
-
-                        try {
-                            val workouts = FirebaseService.fetchWorkouts(patientId)
-                            val completedSessions = workouts.count { (_, workoutData) ->
-                                val completedAt = workoutData["completedAt"]
-                                completedAt is com.google.firebase.Timestamp || completedAt is String
-                            }
-                            val totalSessions = workouts.size
-
-                            val lastCompletedAt = workouts.mapNotNull { (_, workoutData) ->
-                                when (val completedAt = workoutData["completedAt"]) {
-                                    is com.google.firebase.Timestamp -> completedAt.toDate().time
-                                    is String -> runCatching { Instant.parse(completedAt).toEpochMilli() }.getOrNull()
-                                    else -> null
-                                }
-                            }.maxOrNull()
-
-                            if (totalSessions > 0) {
-                                PatientWorkoutStat(
-                                    patientId = patientId,
-                                    patientName = patientName,
-                                    completedSessions = completedSessions,
-                                    totalSessions = totalSessions,
-                                    lastCompletedAtMs = lastCompletedAt
-                                )
-                            } else {
-                                null
-                            }
-                        } catch (_: Exception) {
-                            null
-                        }
-                    }
-                }.awaitAll()
-                    .filterNotNull()
-                    .sortedByDescending { it.completedSessions }
-            }
-
-            errorMessage = null
-        } catch (e: Exception) {
-            workoutStats = emptyList()
-            errorMessage = ErrorHandler.getDisplayMessage(e, "load data")
-        }
-        isLoading = false
-        isRefreshing = false
-    }
-
-    LaunchedEffect(Unit) { loadData() }
+    LaunchedEffect(Unit) { viewModel.load() }
 
     // Auto-refresh when returning to the dashboard (e.g. after assigning a workout)
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                scope.launch { loadData() }
+                viewModel.load()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -334,8 +159,7 @@ fun DoctorDashboardScreen(
         PullToRefreshBox(
             isRefreshing = isRefreshing,
             onRefresh = {
-                isRefreshing = true
-                scope.launch { loadData() }
+                viewModel.refresh()
             },
             modifier = Modifier.padding(padding).fillMaxSize()
         ) {

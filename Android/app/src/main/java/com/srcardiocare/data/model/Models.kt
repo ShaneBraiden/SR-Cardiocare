@@ -3,43 +3,53 @@ package com.srcardiocare.data.model
 
 import java.util.UUID
 
+/**
+ * A user document from the `users` collection. Patient- and doctor-specific
+ * profile fields are stored flat on the same document; only the ones relevant
+ * to a given role are populated.
+ */
 data class User(
-    val id: String = UUID.randomUUID().toString(),
-    val email: String,
-    val firstName: String,
-    val lastName: String,
-    val role: UserRole,
+    val id: String = "",
+    val email: String = "",
+    val firstName: String = "",
+    val lastName: String = "",
+    val role: String = "",                  // "patient" | "doctor" | "admin"
+    val phone: String? = null,
     val profileImageUrl: String? = null,
-    val phone: String? = null
-)
-
-enum class UserRole { PATIENT, DOCTOR, ADMIN }
-
-data class DoctorProfile(
-    val userId: String,
-    val speciality: String,
-    val licenseNumber: String,
-    val clinicName: String
-)
-
-data class PatientProfile(
-    val userId: String,
-    val dateOfBirth: String? = null,
+    val assignedDoctorId: String? = null,
+    val isBlocked: Boolean = false,
+    val apiAccessBlocked: Boolean = false,
+    val blockReason: String? = null,
+    val lastSeenMs: Long? = null,
+    val hasCompletedOnboarding: Boolean = false,
+    // Patient profile fields
     val gender: String? = null,
+    val dateOfBirth: String? = null,
     val injuries: List<String> = emptyList(),
     val primaryGoal: String? = null,
-    val assignedDoctorId: String? = null
-)
+    // Doctor profile fields
+    val speciality: String? = null,
+    val licenseNumber: String? = null,
+    val clinicName: String? = null
+) {
+    val fullName: String
+        get() = listOf(firstName, lastName).filter { it.isNotBlank() }.joinToString(" ")
+
+    /** True if the user was active within the last 5 minutes (presence indicator). */
+    val isOnline: Boolean
+        get() = lastSeenMs?.let { System.currentTimeMillis() - it < 5 * 60 * 1000 } ?: false
+}
 
 data class Exercise(
-    val id: String = UUID.randomUUID().toString(),
-    val name: String,
-    val description: String,
-    val category: String,
-    val difficultyLevel: String,
-    val durationSeconds: Int,
+    val id: String = "",
+    val name: String = "",
+    val description: String = "",
+    val category: String = "",
+    val difficultyLevel: String = "",
+    val durationSeconds: Int = 0,
     val videoUrl: String? = null,
     val thumbnailUrl: String? = null,
+    val uploadedBy: String = "",
     val sets: Int = 3,
     val reps: Int = 10,
     val instructions: String? = null
@@ -66,11 +76,11 @@ data class PlanExercise(
 )
 
 data class WorkoutSession(
-    val id: String = UUID.randomUUID().toString(),
-    val patientId: String,
-    val planId: String,
-    val startedAt: String,
-    val completedAt: String? = null,
+    val id: String = "",
+    val patientId: String = "",
+    val planId: String = "",
+    val startedAtMs: Long? = null,
+    val completedAtMs: Long? = null,
     val exercisesCompleted: Int = 0,
     val totalExercises: Int = 0
 )
@@ -85,26 +95,48 @@ data class WorkoutFeedback(
 )
 
 data class Appointment(
-    val id: String = UUID.randomUUID().toString(),
-    val patientId: String,
-    val doctorId: String,
-    val dateTime: String,
-    val durationMinutes: Int = 30,
-    val type: String,
-    val status: AppointmentStatus = AppointmentStatus.SCHEDULED,
-    val notes: String? = null
+    val id: String = "",
+    val patientId: String? = null,
+    val doctorId: String? = null,
+    val dateTimeMs: Long? = null,
+    val type: String = "Appointment",
+    val status: String = "scheduled",         // stored lowercase
+    val notes: String = "",
+    val requestedByRole: String = "doctor"
 )
 
 enum class AppointmentStatus { SCHEDULED, PENDING, CONFIRMED, CANCELLED, COMPLETED }
 
 data class AppNotification(
-    val id: String = UUID.randomUUID().toString(),
-    val userId: String,
-    val title: String,
-    val body: String,
-    val type: String,
+    val id: String = "",
+    val userId: String = "",
+    val title: String = "",
+    val body: String = "",
+    val type: String = "",
+    val route: String = "",
+    val params: Map<String, String> = emptyMap(),
     val isRead: Boolean = false,
-    val createdAt: String
+    val createdAtMs: Long? = null
+)
+
+/** Post-workout cardiac feedback (collection: "postWorkoutFeedback"). */
+data class PostWorkoutFeedback(
+    val id: String = "",
+    val patientId: String = "",
+    val workoutId: String? = null,
+    val respiratoryDifficulty: Int = 1,
+    val stress: Boolean = false,
+    val strain: Boolean = false,
+    val notes: String? = null,
+    val submittedAtMs: Long? = null
+)
+
+data class ChatMessage(
+    val id: String = "",
+    val senderId: String = "",
+    val senderName: String = "",
+    val text: String = "",
+    val timestampMs: Long? = null
 )
 
 // ═══════════════════════════════════════════════════════════════════════════════

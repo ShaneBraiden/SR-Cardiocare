@@ -33,20 +33,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import com.srcardiocare.core.security.ErrorHandler
-import com.srcardiocare.data.firebase.FirebaseService
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.srcardiocare.ui.components.SkeletonDonutChart
 import com.srcardiocare.ui.components.SkeletonStatsCard
 import com.srcardiocare.ui.components.StatItem
 import com.srcardiocare.ui.components.StatItemStyle
 import com.srcardiocare.ui.theme.DesignTokens
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
 import java.time.Duration
 import java.time.Instant
-import java.time.LocalDate
 
 data class DoctorItem(
     val id: String,
@@ -69,150 +64,29 @@ fun AdminDashboardScreen(
     onSettings: () -> Unit,
     onProfile: () -> Unit = {}
 ) {
-    var doctors by remember { mutableStateOf<List<DoctorItem>>(emptyList()) }
-    var totalPatients by remember { mutableStateOf(0) }
-    var totalUsers by remember { mutableStateOf(0) }
-    var onlineCount by remember { mutableStateOf(0) }
-    var blockedCount by remember { mutableStateOf(0) }
-    var onTrackCount by remember { mutableStateOf(0) }
-    var attentionCount by remember { mutableStateOf(0) }
-    var notAssignedCount by remember { mutableStateOf(0) }
-    var isLoading by remember { mutableStateOf(true) }
-    var isRefreshing by remember { mutableStateOf(false) }
-    var adminName by remember { mutableStateOf("") }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
+    val viewModel: AdminDashboardViewModel = viewModel()
+    val ui by viewModel.state.collectAsStateWithLifecycle()
+    val doctors = ui.doctors
+    val totalPatients = ui.totalPatients
+    val totalUsers = ui.totalUsers
+    val onlineCount = ui.onlineCount
+    val blockedCount = ui.blockedCount
+    val onTrackCount = ui.onTrackCount
+    val attentionCount = ui.attentionCount
+    val notAssignedCount = ui.notAssignedCount
+    val adminName = ui.adminName
+    val isLoading = ui.isLoading
+    val isRefreshing = ui.isRefreshing
+    val errorMessage = ui.errorMessage
 
-    val scope = rememberCoroutineScope()
-
-    suspend fun loadData() {
-        try {
-            val uid = FirebaseService.currentUID
-            if (uid == null) {
-                errorMessage = "Not signed in."
-                isLoading = false
-                isRefreshing = false
-                return
-            }
-
-            val userData = FirebaseService.fetchUser(uid)
-            val firstName = userData["firstName"] as? String ?: ""
-            val lastName = userData["lastName"] as? String ?: ""
-            adminName = "$firstName $lastName (Admin)"
-
-            val allUsers = FirebaseService.fetchAllUsers()
-            totalUsers = allUsers.size
-
-            var patientCounter = 0
-            var onlineCounter = 0
-            var blockedCounter = 0
-            val doctorList = mutableListOf<DoctorItem>()
-
-            for ((userId, data) in allUsers) {
-                val role = (data["role"] as? String)?.lowercase() ?: "patient"
-                val isBlocked = data["isBlocked"] as? Boolean ?: false
-
-                // Check online status
-                val lastSeenRaw = data["lastSeen"]
-                val isOnline = try {
-                    when (lastSeenRaw) {
-                        is com.google.firebase.Timestamp -> {
-                            val lastSeenInstant = Instant.ofEpochSecond(lastSeenRaw.seconds)
-                            Duration.between(lastSeenInstant, Instant.now()).toMinutes() < 5
-                        }
-                        else -> false
-                    }
-                } catch (_: Exception) { false }
-
-                if (isOnline) onlineCounter++
-                if (isBlocked) blockedCounter++
-
-                when (role) {
-                    "patient" -> patientCounter++
-                    "doctor" -> {
-                        val fName = data["firstName"] as? String ?: ""
-                        val lName = data["lastName"] as? String ?: ""
-                        val specialty = data["speciality"] as? String ?: "General"
-                        val initials = "${fName.firstOrNull() ?: ""}${lName.firstOrNull() ?: ""}".uppercase().ifBlank { "?" }
-
-                        // Count patients assigned to this doctor
-                        val assignedPatients = try {
-                            FirebaseService.fetchPatients(userId).size
-                        } catch (_: Exception) { 0 }
-
-                        doctorList.add(
-                            DoctorItem(
-                                id = userId,
-                                name = "Dr. $fName $lName".trim(),
-                                specialty = specialty,
-                                patientCount = assignedPatients,
-                                isOnline = isOnline,
-                                initials = initials
-                            )
-                        )
-                    }
-                }
-            }
-
-            doctors = doctorList
-            totalPatients = patientCounter
-            onlineCount = onlineCounter
-            blockedCount = blockedCounter
-
-            // Compute patient workout status (On Track / Attention / Not Assigned)
-            val today = LocalDate.now().toString()
-            val patientIds = allUsers.filter { (_, data) ->
-                ((data["role"] as? String) ?: "patient").lowercase() == "patient"
-            }.map { it.first }
-
-            var onTrack = 0
-            var attention = 0
-            var notAssigned = 0
-            coroutineScope {
-                patientIds.map { patientId ->
-                    async {
-                        try {
-                            val assignments = FirebaseService.fetchAssignments(patientId)
-                            if (assignments.isEmpty()) return@async "not_assigned"
-                            val completedAssignmentsToday = assignments.count { (assignmentId, assignmentData) ->
-                                val dailyFrequency = ((assignmentData["dailyFrequency"] as? Number)?.toInt() ?: 3).coerceIn(1, 3)
-                                val done = try {
-                                    FirebaseService.fetchSessionsForDate(assignmentId, today).count { (_, s) ->
-                                        ((s["status"] as? String) ?: "").equals("COMPLETED", ignoreCase = true)
-                                    }
-                                } catch (_: Exception) { 0 }
-                                done >= dailyFrequency
-                            }
-                            if (completedAssignmentsToday == assignments.size) "on_track" else "attention"
-                        } catch (_: Exception) { "not_assigned" }
-                    }
-                }.awaitAll().forEach { status ->
-                    when (status) {
-                        "on_track" -> onTrack++
-                        "attention" -> attention++
-                        else -> notAssigned++
-                    }
-                }
-            }
-            onTrackCount = onTrack
-            attentionCount = attention
-            notAssignedCount = notAssigned
-
-            errorMessage = null
-        } catch (e: Exception) {
-            errorMessage = ErrorHandler.getDisplayMessage(e, "load dashboard")
-        }
-        isLoading = false
-        isRefreshing = false
-    }
-
-    LaunchedEffect(Unit) { loadData() }
+    LaunchedEffect(Unit) { viewModel.load() }
 
     // Auto-refresh when navigating back to the dashboard
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                scope.launch { loadData() }
+                viewModel.load()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -240,8 +114,7 @@ fun AdminDashboardScreen(
         PullToRefreshBox(
             isRefreshing = isRefreshing,
             onRefresh = {
-                isRefreshing = true
-                scope.launch { loadData() }
+                viewModel.refresh()
             },
             modifier = Modifier.padding(padding).fillMaxSize()
         ) {

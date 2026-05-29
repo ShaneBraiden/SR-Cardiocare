@@ -18,6 +18,7 @@ import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.core.security.InputValidator
 import com.srcardiocare.core.security.PasswordGenerator
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.data.firebase.UserRepository
 import com.srcardiocare.ui.components.rememberToast
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
@@ -42,8 +43,7 @@ fun AddDoctorScreen(onSaved: () -> Unit, onBack: () -> Unit) {
     LaunchedEffect(Unit) {
         try {
             val uid = FirebaseService.currentUID ?: return@LaunchedEffect
-            val data = FirebaseService.fetchUser(uid)
-            adminEmail = data["email"] as? String
+            adminEmail = UserRepository.getUser(uid).email.ifBlank { null }
         } catch (_: Exception) { }
     }
 

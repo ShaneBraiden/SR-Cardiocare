@@ -15,6 +15,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.data.firebase.UserRepository
 import com.srcardiocare.ui.components.rememberToast
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
@@ -54,22 +55,18 @@ fun AdminSettingsScreen(onBack: () -> Unit) {
             blockAllDoctors = settings.blockAllDoctors
 
             val currentUid = FirebaseService.currentUID
-            val users = FirebaseService.fetchAllUsers()
-            accessUsers = users.mapNotNull { (uid, data) ->
-                if (uid == currentUid) return@mapNotNull null
-                val userRole = (data["role"] as? String ?: "").lowercase()
-                if (userRole != "patient" && userRole != "doctor") return@mapNotNull null
+            accessUsers = UserRepository.getAllUsers().mapNotNull { user ->
+                if (user.id == currentUid) return@mapNotNull null
+                if (user.role != "patient" && user.role != "doctor") return@mapNotNull null
 
-                val first = data["firstName"] as? String ?: ""
-                val last = data["lastName"] as? String ?: ""
-                val name = "$first $last".trim().ifBlank { data["email"] as? String ?: "Unknown" }
+                val name = user.fullName.ifBlank { user.email.ifBlank { "Unknown" } }
 
                 AccessUser(
-                    id = uid,
+                    id = user.id,
                     name = name,
-                    role = userRole,
-                    isBlocked = data["isBlocked"] as? Boolean ?: false,
-                    blockReason = data["blockReason"] as? String ?: ""
+                    role = user.role,
+                    isBlocked = user.isBlocked,
+                    blockReason = user.blockReason ?: ""
                 )
             }.sortedWith(compareBy<AccessUser> { it.role }.thenBy { it.name })
         } catch (e: Exception) {

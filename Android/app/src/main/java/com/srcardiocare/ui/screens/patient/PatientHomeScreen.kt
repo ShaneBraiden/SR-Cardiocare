@@ -29,7 +29,10 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.srcardiocare.R
+import com.srcardiocare.data.firebase.AssignmentRepository
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.data.firebase.SessionRepository
+import com.srcardiocare.data.firebase.UserRepository
 import com.srcardiocare.ui.components.ShimmerBox
 import com.srcardiocare.ui.components.TourOverlay
 import com.srcardiocare.ui.components.TourStep
@@ -108,12 +111,12 @@ fun PatientHomeScreen(
                 scope.launch {
                     try {
                         val uid = FirebaseService.currentUID ?: return@launch
-                        val userData = FirebaseService.fetchUser(uid)
-                        userName = userData["firstName"] as? String ?: ""
+                        val user = UserRepository.getUser(uid)
+                        userName = user.firstName
 
                         // First-login tour trigger: fires only if the user has never
                         // completed (or dismissed) the tour before.
-                        if (!shouldShowTour && userData["hasCompletedOnboarding"] != true) {
+                        if (!shouldShowTour && !user.hasCompletedOnboarding) {
                             shouldShowTour = true
                         }
 
@@ -121,28 +124,28 @@ fun PatientHomeScreen(
 
                         // Use assignment-based progress tracking
                         val today = LocalDate.now()
-                        val rawAssignments = FirebaseService.fetchAssignments(uid)
-                        val todaySessions = try { FirebaseService.fetchTodaysSessions(uid) } catch (_: Exception) { emptyList() }
+                        val assignments = AssignmentRepository.getAssignments(uid)
+                        val todaySessions = try { SessionRepository.getTodaysSessions(uid) } catch (_: Exception) { emptyList() }
 
                         // Count active assignments for today
                         var activeCount = 0
                         var doneCount = 0
 
-                        for ((id, data) in rawAssignments) {
-                            val startDate = try { LocalDate.parse(data["startDate"] as? String ?: "") } catch (_: Exception) { continue }
-                            val endDate = try { LocalDate.parse(data["endDate"] as? String ?: "") } catch (_: Exception) { continue }
+                        for (assignment in assignments) {
+                            val startDate = try { LocalDate.parse(assignment.startDate) } catch (_: Exception) { continue }
+                            val endDate = try { LocalDate.parse(assignment.endDate) } catch (_: Exception) { continue }
 
                             // Only count assignments active today
                             if (today.isBefore(startDate) || today.isAfter(endDate)) continue
 
                             activeCount++
 
-                            val dailyFreq = ((data["dailyFrequency"] as? Number)?.toInt() ?: 3).coerceIn(1, 3)
+                            val dailyFreq = assignment.dailyFrequency
                             val assignmentSessions = todaySessions.filter {
-                                (it.second["assignmentId"] as? String) == id
+                                it.assignmentId == assignment.id
                             }
                             val completedSessions = assignmentSessions.count {
-                                it.second["status"] == "COMPLETED"
+                                it.status == com.srcardiocare.data.model.SessionStatus.COMPLETED
                             }
                             if (completedSessions >= dailyFreq) {
                                 doneCount++
@@ -153,8 +156,8 @@ fun PatientHomeScreen(
                         completedCount = doneCount
 
                         // Check expiry from assignments
-                        val nearestExpiry = rawAssignments.mapNotNull { (_, data) ->
-                            try { LocalDate.parse(data["endDate"] as? String ?: "") } catch (_: Exception) { null }
+                        val nearestExpiry = assignments.mapNotNull { assignment ->
+                            try { LocalDate.parse(assignment.endDate) } catch (_: Exception) { null }
                         }.filter { !today.isAfter(it) }.minOrNull()
 
                         expiryText = if (nearestExpiry != null) {

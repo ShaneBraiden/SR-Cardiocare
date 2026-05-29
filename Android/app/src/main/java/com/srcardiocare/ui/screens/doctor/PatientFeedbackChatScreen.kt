@@ -22,9 +22,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
-import com.google.firebase.Timestamp
 import com.srcardiocare.core.security.InputValidator
+import com.srcardiocare.data.firebase.ChatRepository
+import com.srcardiocare.data.firebase.FeedbackRepository
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.data.firebase.UserRepository
+import com.srcardiocare.data.model.ChatMessage
 import com.srcardiocare.ui.components.SkeletonListRow
 import com.srcardiocare.ui.theme.DesignTokens
 import java.text.SimpleDateFormat
@@ -54,10 +57,7 @@ fun PatientFeedbackChatScreen(
 
     LaunchedEffect(patientId) {
         try {
-            val userMap = FirebaseService.fetchUser(patientId)
-            val f = userMap["firstName"] as? String ?: ""
-            val l = userMap["lastName"] as? String ?: ""
-            patientName = "$f $l".trim().ifBlank { "Patient" }
+            patientName = UserRepository.getUser(patientId).fullName.ifBlank { "Patient" }
         } catch (e: Exception) {
             patientName = "Patient"
         }
@@ -112,17 +112,11 @@ private fun FeedbackTabView(patientId: String, patientName: String) {
 
     LaunchedEffect(patientId) {
         try {
-            val res = FirebaseService.fetchPatientFeedbacks(patientId)
-            feedbacks = res.map { (id, data) ->
-                val ts = data["submittedAt"] as? Timestamp
-                val sdf = SimpleDateFormat("dd/MM/yyyy • hh:mm a", Locale.getDefault())
-                val dateStr = ts?.toDate()?.let { sdf.format(it) } ?: "Just now"
-
-                val stress = data["stress"] as? Boolean ?: false
-                val strain = data["strain"] as? Boolean ?: false
-                val respiratory = (data["respiratoryDifficulty"] as? Number)?.toInt() ?: 1
-
-                FeedbackItem(id, patientName, dateStr, stress, strain, respiratory)
+            val res = FeedbackRepository.getPatientFeedbacks(patientId)
+            val sdf = SimpleDateFormat("dd/MM/yyyy • hh:mm a", Locale.getDefault())
+            feedbacks = res.map { fb ->
+                val dateStr = fb.submittedAtMs?.let { sdf.format(java.util.Date(it)) } ?: "Just now"
+                FeedbackItem(fb.id, patientName, dateStr, fb.stress, fb.strain, fb.respiratoryDifficulty)
             }
         } catch (e: Exception) {
             // failed
@@ -158,7 +152,7 @@ private fun FeedbackTabView(patientId: String, patientName: String) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ChatTabView(patientId: String) {
-    var rawMessages by remember { mutableStateOf<List<Map<String, Any?>>>(emptyList()) }
+    var rawMessages by remember { mutableStateOf<List<ChatMessage>>(emptyList()) }
     var inputText by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     var currentUid by remember { mutableStateOf("") }
@@ -176,13 +170,10 @@ private fun ChatTabView(patientId: String) {
         val uid = FirebaseService.currentUID ?: return@LaunchedEffect
         currentUid = uid
         try {
-            val usr = FirebaseService.fetchUser(uid)
-            val f = usr["firstName"] as? String ?: ""
-            val l = usr["lastName"] as? String ?: ""
-            currentName = "$f $l".trim()
+            currentName = UserRepository.getUser(uid).fullName
         } catch (_: Exception) {}
 
-        FirebaseService.observeChatMessages(patientId).collect { msgs ->
+        ChatRepository.observeChatMessagesTyped(patientId).collect { msgs ->
             rawMessages = msgs
         }
     }
@@ -195,13 +186,12 @@ private fun ChatTabView(patientId: String) {
         ) {
             item { Spacer(modifier = Modifier.height(DesignTokens.Spacing.SM)) }
             items(rawMessages) { msg ->
-                val senderId = msg["senderId"] as? String ?: ""
-                val text = msg["text"] as? String ?: ""
+                val senderId = msg.senderId
+                val text = msg.text
                 val isMe = senderId == currentUid
                 
-                val ts = msg["timestamp"] as? Timestamp
                 val sdf = SimpleDateFormat("hh:mm a", Locale.getDefault())
-                val timeStr = ts?.toDate()?.let { sdf.format(it) } ?: ""
+                val timeStr = msg.timestampMs?.let { sdf.format(java.util.Date(it)) } ?: ""
 
                 Box(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),

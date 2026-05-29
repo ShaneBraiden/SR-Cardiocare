@@ -15,10 +15,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import com.srcardiocare.core.security.ErrorHandler
-import com.srcardiocare.data.firebase.FirebaseService
-import com.srcardiocare.ui.components.ShimmerBox
-import com.srcardiocare.ui.components.SkeletonProfileHeader
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.srcardiocare.ui.components.ProfileFormSkeleton
 import com.srcardiocare.ui.components.rememberToast
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
@@ -28,66 +27,48 @@ import kotlinx.coroutines.launch
 fun AdminDoctorProfileScreen(
     doctorId: String,
     onBack: () -> Unit,
-    onDeleted: () -> Unit
+    onDeleted: () -> Unit,
+    viewModel: AdminDoctorProfileViewModel = viewModel()
 ) {
-    var firstName by remember { mutableStateOf("") }
-    var lastName by remember { mutableStateOf("") }
-    var email by remember { mutableStateOf("") }
-    var phone by remember { mutableStateOf("") }
-    var speciality by remember { mutableStateOf("") }
-    var licenseNumber by remember { mutableStateOf("") }
-    var clinicName by remember { mutableStateOf("") }
+    val ui by viewModel.state.collectAsStateWithLifecycle()
 
-    var isLoading by remember { mutableStateOf(true) }
-    var isSaving by remember { mutableStateOf(false) }
-    var isDeleting by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
     var showDeleteDialog by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val toast = rememberToast()
 
+    fun showError(msg: String) {
+        scope.launch { snackbarHostState.showSnackbar(msg) }
+    }
+
     LaunchedEffect(doctorId) {
-        try {
-            val data = FirebaseService.fetchUser(doctorId)
-            firstName = data["firstName"] as? String ?: ""
-            lastName = data["lastName"] as? String ?: ""
-            email = data["email"] as? String ?: ""
-            phone = data["phone"] as? String ?: ""
-            speciality = data["speciality"] as? String ?: ""
-            licenseNumber = data["licenseNumber"] as? String ?: ""
-            clinicName = data["clinicName"] as? String ?: ""
-        } catch (e: Exception) {
-            errorMessage = ErrorHandler.getDisplayMessage(e, "load doctor details")
-        }
-        isLoading = false
+        viewModel.loadOnce(doctorId, ::showError)
     }
 
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
             title = { Text("Delete Doctor") },
-            text = { Text("Are you sure you want to delete Dr. $firstName $lastName? This will remove their Firestore profile.") },
+            text = { Text("Are you sure you want to delete Dr. ${ui.firstName} ${ui.lastName}? This will remove their Firestore profile.") },
             confirmButton = {
                 TextButton(
                     onClick = {
                         showDeleteDialog = false
-                        isDeleting = true
-                        scope.launch {
-                            try {
-                                FirebaseService.deleteUser(doctorId)
+                        viewModel.delete(
+                            doctorId = doctorId,
+                            onSuccess = {
                                 toast("Doctor deleted")
                                 onDeleted()
-                            } catch (e: Exception) {
-                                isDeleting = false
+                            },
+                            onError = { msg ->
                                 toast("Failed to delete doctor")
-                                errorMessage = ErrorHandler.getDisplayMessage(e, "delete doctor")
+                                showError(msg)
                             }
-                        }
+                        )
                     }
                 ) {
-                    if (isDeleting) {
+                    if (ui.isDeleting) {
                         CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                     } else {
                         Text("Delete", color = DesignTokens.Colors.Error)
@@ -98,13 +79,6 @@ fun AdminDoctorProfileScreen(
                 TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") }
             }
         )
-    }
-
-    LaunchedEffect(errorMessage) {
-        errorMessage?.let {
-            snackbarHostState.showSnackbar(it)
-            errorMessage = null
-        }
     }
 
     Scaffold(
@@ -122,7 +96,7 @@ fun AdminDoctorProfileScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
-        if (isLoading) {
+        if (ui.isLoading) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -130,17 +104,7 @@ fun AdminDoctorProfileScreen(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = DesignTokens.Spacing.XL)
             ) {
-                SkeletonProfileHeader()
-                Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
-                repeat(5) {
-                    ShimmerBox(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp),
-                        shape = RoundedCornerShape(DesignTokens.Radius.Base)
-                    )
-                    Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
-                }
+                ProfileFormSkeleton()
             }
             return@Scaffold
         }
@@ -157,7 +121,7 @@ fun AdminDoctorProfileScreen(
 
             // Non-editable email
             OutlinedTextField(
-                value = email, onValueChange = {},
+                value = ui.email, onValueChange = {},
                 label = { Text("Email (Cannot be changed)") },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = false,
@@ -166,7 +130,7 @@ fun AdminDoctorProfileScreen(
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
 
             OutlinedTextField(
-                value = firstName, onValueChange = { firstName = it },
+                value = ui.firstName, onValueChange = viewModel::setFirstName,
                 label = { Text("First Name") }, modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(DesignTokens.Radius.Base), singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = DesignTokens.Colors.Primary)
@@ -174,7 +138,7 @@ fun AdminDoctorProfileScreen(
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
 
             OutlinedTextField(
-                value = lastName, onValueChange = { lastName = it },
+                value = ui.lastName, onValueChange = viewModel::setLastName,
                 label = { Text("Last Name") }, modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(DesignTokens.Radius.Base), singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = DesignTokens.Colors.Primary)
@@ -182,7 +146,7 @@ fun AdminDoctorProfileScreen(
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
 
             OutlinedTextField(
-                value = phone, onValueChange = { phone = it },
+                value = ui.phone, onValueChange = viewModel::setPhone,
                 label = { Text("Phone") }, modifier = Modifier.fillMaxWidth(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                 shape = RoundedCornerShape(DesignTokens.Radius.Base), singleLine = true,
@@ -191,7 +155,7 @@ fun AdminDoctorProfileScreen(
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
 
             OutlinedTextField(
-                value = speciality, onValueChange = { speciality = it },
+                value = ui.speciality, onValueChange = viewModel::setSpeciality,
                 label = { Text("Speciality") }, modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(DesignTokens.Radius.Base), singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = DesignTokens.Colors.Primary)
@@ -199,7 +163,7 @@ fun AdminDoctorProfileScreen(
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
 
             OutlinedTextField(
-                value = licenseNumber, onValueChange = { licenseNumber = it },
+                value = ui.licenseNumber, onValueChange = viewModel::setLicenseNumber,
                 label = { Text("License Number") }, modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(DesignTokens.Radius.Base), singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = DesignTokens.Colors.Primary)
@@ -207,7 +171,7 @@ fun AdminDoctorProfileScreen(
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
 
             OutlinedTextField(
-                value = clinicName, onValueChange = { clinicName = it },
+                value = ui.clinicName, onValueChange = viewModel::setClinicName,
                 label = { Text("Clinic Name") }, modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(DesignTokens.Radius.Base), singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = DesignTokens.Colors.Primary)
@@ -218,36 +182,22 @@ fun AdminDoctorProfileScreen(
             // Save changes button
             Button(
                 onClick = {
-                    if (firstName.isBlank() || lastName.isBlank()) {
-                        errorMessage = "Names cannot be blank"
-                        return@Button
-                    }
-                    isSaving = true
-                    scope.launch {
-                        try {
-                            val updates = mapOf(
-                                "firstName" to firstName.trim(),
-                                "lastName" to lastName.trim(),
-                                "phone" to phone.trim(),
-                                "speciality" to speciality.trim(),
-                                "licenseNumber" to licenseNumber.trim(),
-                                "clinicName" to clinicName.trim()
-                            )
-                            FirebaseService.updateUserById(doctorId, updates)
-                            toast("Doctor updated")
-                        } catch (e: Exception) {
+                    viewModel.save(
+                        doctorId = doctorId,
+                        onValidationError = ::showError,
+                        onSuccess = { toast("Doctor updated") },
+                        onError = { msg ->
                             toast("Failed to update doctor")
-                            errorMessage = ErrorHandler.getDisplayMessage(e, "update doctor")
+                            showError(msg)
                         }
-                        isSaving = false
-                    }
+                    )
                 },
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(DesignTokens.Radius.Base),
                 colors = ButtonDefaults.buttonColors(containerColor = DesignTokens.Colors.Primary),
-                enabled = !isSaving
+                enabled = !ui.isSaving
             ) {
-                if (isSaving) {
+                if (ui.isSaving) {
                     CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
                 } else {
                     Text("Save Changes", fontWeight = FontWeight.SemiBold)

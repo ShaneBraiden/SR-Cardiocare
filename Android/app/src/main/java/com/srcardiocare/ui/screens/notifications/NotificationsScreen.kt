@@ -24,6 +24,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.data.firebase.NotificationRepository
+import com.srcardiocare.data.model.AppNotification
 import com.srcardiocare.ui.components.SkeletonListRow
 import com.srcardiocare.ui.components.rememberToast
 import com.srcardiocare.ui.theme.DesignTokens
@@ -40,12 +42,12 @@ fun NotificationsScreen(
 ) {
     val scope = rememberCoroutineScope()
     val toast = rememberToast()
-    var items by remember { mutableStateOf<List<Pair<String, Map<String, Any?>>>>(emptyList()) }
+    var items by remember { mutableStateOf<List<AppNotification>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
         val uid = FirebaseService.currentUID ?: return@LaunchedEffect
-        FirebaseService.observeNotifications(uid).collect {
+        NotificationRepository.observeNotificationsTyped(uid).collect {
             items = it
             isLoading = false
         }
@@ -61,7 +63,7 @@ fun NotificationsScreen(
                     }
                 },
                 actions = {
-                    val unread = items.count { (it.second["isRead"] as? Boolean) != true }
+                    val unread = items.count { !it.isRead }
                     if (unread > 0) {
                         IconButton(onClick = {
                             scope.launch {
@@ -114,15 +116,12 @@ fun NotificationsScreen(
             contentPadding = PaddingValues(DesignTokens.Spacing.MD),
             verticalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.SM)
         ) {
-            items(items, key = { it.first }) { (id, data) ->
+            items(items, key = { it.id }) { notification ->
                 NotificationRow(
-                    data = data,
+                    notification = notification,
                     onTap = {
-                        scope.launch { runCatching { FirebaseService.markNotificationRead(id) } }
-                        val route = data["route"] as? String ?: ""
-                        @Suppress("UNCHECKED_CAST")
-                        val params = (data["params"] as? Map<String, String>).orEmpty()
-                        if (route.isNotBlank()) onOpenRoute(route, params)
+                        scope.launch { runCatching { FirebaseService.markNotificationRead(notification.id) } }
+                        if (notification.route.isNotBlank()) onOpenRoute(notification.route, notification.params)
                     }
                 )
             }
@@ -132,11 +131,11 @@ fun NotificationsScreen(
 
 @Composable
 private fun NotificationRow(
-    data: Map<String, Any?>,
+    notification: AppNotification,
     onTap: () -> Unit
 ) {
-    val isRead = (data["isRead"] as? Boolean) == true
-    val type = (data["type"] as? String).orEmpty()
+    val isRead = notification.isRead
+    val type = notification.type
     val (icon, tint) = iconFor(type)
 
     Card(
@@ -168,13 +167,13 @@ private fun NotificationRow(
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = data["title"] as? String ?: "Notification",
+                    text = notification.title.ifBlank { "Notification" },
                     fontWeight = if (isRead) FontWeight.Medium else FontWeight.SemiBold,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface
                 )
-                val body = data["body"] as? String
-                if (!body.isNullOrBlank()) {
+                val body = notification.body
+                if (body.isNotBlank()) {
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = body,
@@ -182,7 +181,7 @@ private fun NotificationRow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                val timeLabel = formatTime(data["createdAt"])
+                val timeLabel = formatTime(notification.createdAtMs)
                 if (timeLabel.isNotBlank()) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(

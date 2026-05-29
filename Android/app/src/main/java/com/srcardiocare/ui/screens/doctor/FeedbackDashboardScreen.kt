@@ -18,11 +18,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.data.firebase.UserRepository
 import com.srcardiocare.ui.components.SkeletonListRow
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.async
@@ -51,30 +51,27 @@ fun FeedbackDashboardScreen(
     LaunchedEffect(Unit) {
         try {
             val uid = FirebaseService.currentUID ?: return@LaunchedEffect
-            val me = FirebaseService.fetchUser(uid)
-            userRole = (me["role"] as? String ?: "").lowercase()
+            userRole = UserRepository.getUser(uid).role
 
             val fetched = if (userRole == "admin") {
-                FirebaseService.fetchAllPatients()
+                UserRepository.getAllPatients()
             } else {
-                FirebaseService.fetchPatients(uid)
+                UserRepository.getPatients(uid)
             }
             val db = FirebaseFirestore.getInstance()
             patients = coroutineScope {
-                fetched.map { (id, data) ->
+                fetched.map { patient ->
                     async {
-                        val fName = data["firstName"] as? String ?: ""
-                        val lName = data["lastName"] as? String ?: ""
-                        val initials = "${fName.firstOrNull() ?: ""}${lName.firstOrNull() ?: ""}".uppercase()
+                        val initials = "${patient.firstName.firstOrNull() ?: ""}${patient.lastName.firstOrNull() ?: ""}".uppercase()
                         val lastMs = try {
-                            val snap = db.collection("chats").document(id).collection("messages")
+                            val snap = db.collection("chats").document(patient.id).collection("messages")
                                 .orderBy("timestamp", Query.Direction.DESCENDING)
                                 .limit(1)
                                 .get().await()
                             val ts = snap.documents.firstOrNull()?.getTimestamp("timestamp")
                             ts?.toDate()?.time ?: 0L
                         } catch (_: Exception) { 0L }
-                        ChatPatientItem(id, "$fName $lName".trim(), initials.ifBlank { "?" }, lastMs)
+                        ChatPatientItem(patient.id, patient.fullName, initials.ifBlank { "?" }, lastMs)
                     }
                 }.awaitAll()
             }.sortedByDescending { it.lastMessageAtMs }

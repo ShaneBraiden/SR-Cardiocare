@@ -28,7 +28,6 @@ import com.srcardiocare.core.push.PushMessagingService
 import com.srcardiocare.core.auth.AuthManager
 import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.data.firebase.FirebaseService
-import com.srcardiocare.data.repository.RehabRepository
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -38,8 +37,6 @@ import kotlinx.coroutines.tasks.await
 fun LoginScreen(onLoginSuccess: (role: String) -> Unit, onChangePassword: () -> Unit = {}) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val repository = remember { RehabRepository() }
-
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
@@ -195,7 +192,7 @@ fun LoginScreen(onLoginSuccess: (role: String) -> Unit, onChangePassword: () -> 
                         isLoading = true
                         errorMessage = null
                         scope.launch {
-                            val result = repository.login(email.trim(), password)
+                            val result = runCatching { FirebaseService.login(email.trim(), password) }
                             result.onSuccess { userData ->
                                 val role = (userData["role"] as? String)?.uppercase() ?: "PATIENT"
                                 val mustChangePassword = userData["mustChangePassword"] as? Boolean ?: false

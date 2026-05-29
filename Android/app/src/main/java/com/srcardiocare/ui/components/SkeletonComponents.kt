@@ -347,3 +347,22 @@ fun SkeletonProfileHeader(modifier: Modifier = Modifier) {
         )
     }
 }
+
+/**
+ * Loading placeholder for profile screens: avatar/name header followed by five
+ * field-row shimmers. Emit inside the screen's scrolling Column.
+ */
+@Composable
+fun ProfileFormSkeleton(rows: Int = 5) {
+    SkeletonProfileHeader()
+    Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+    repeat(rows) {
+        ShimmerBox(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp),
+            shape = RoundedCornerShape(DesignTokens.Radius.Base)
+        )
+        Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
+    }
+}

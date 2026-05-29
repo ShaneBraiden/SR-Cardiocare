@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.core.security.InputValidator
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.data.firebase.UserRepository
 import com.srcardiocare.ui.components.rememberToast
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
@@ -43,10 +44,7 @@ fun PostWorkoutFeedbackScreen(
     LaunchedEffect(Unit) {
         val uid = FirebaseService.currentUID ?: return@LaunchedEffect
         try {
-            val user = FirebaseService.fetchUser(uid)
-            val f = user["firstName"] as? String ?: ""
-            val l = user["lastName"] as? String ?: ""
-            patientName = "$f $l".trim().ifBlank { "Patient" }
+            patientName = UserRepository.getUser(uid).fullName.ifBlank { "Patient" }
         } catch (_: Exception) {}
     }
 

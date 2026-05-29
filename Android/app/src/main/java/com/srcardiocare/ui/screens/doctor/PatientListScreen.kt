@@ -30,11 +30,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.srcardiocare.core.push.NotificationEvent
 import com.srcardiocare.core.push.Notifier
-import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.core.security.InputValidator
-import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -49,113 +49,29 @@ fun PatientListScreen(
     onDoctorTap: (String) -> Unit,
     onBack: () -> Unit
 ) {
+    val viewModel: PatientListViewModel = viewModel()
+    val ui by viewModel.state.collectAsStateWithLifecycle()
+    val allUsers = ui.allUsers
+    val userRole = ui.userRole
+    val isLoading = ui.isLoading
+    val isRefreshing = ui.isRefreshing
+    val errorMessage = ui.errorMessage
+
     var searchQuery by remember { mutableStateOf("") }
-    var allUsers by remember { mutableStateOf<List<UserItem>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
-    var isRefreshing by remember { mutableStateOf(false) }
-    var userRole by remember { mutableStateOf("") }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
     var selectedFilter by remember { mutableStateOf(PatientFilter.ALL) }
     var isReminding by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    suspend fun loadData() {
-        try {
-            val uid = FirebaseService.currentUID ?: return
-            val userData = FirebaseService.fetchUser(uid)
-            userRole = (userData["role"] as? String)?.lowercase() ?: ""
-
-            val users = if (userRole == "admin") {
-                FirebaseService.fetchAllUsers()
-            } else {
-                FirebaseService.fetchPatients(uid)
-            }
-
-            // Compute status based on today's assignment completion for patients
-            val patientStatusMap = mutableMapOf<String, UserStatus>()
-            val today = java.time.LocalDate.now().toString()
-            users.filter { (_, data) ->
-                ((data["role"] as? String) ?: "patient").lowercase() == "patient"
-            }.forEach { (patientId, _) ->
-                try {
-                    val assignments = FirebaseService.fetchAssignments(patientId)
-                    patientStatusMap[patientId] = when {
-                        assignments.isEmpty() -> UserStatus.INACTIVE
-                        else -> {
-                            val completedAssignmentsToday = assignments.count { (assignmentId, assignmentData) ->
-                                val dailyFrequency = ((assignmentData["dailyFrequency"] as? Number)?.toInt() ?: 3).coerceIn(1, 3)
-                                val completedSessionsToday = try {
-                                    FirebaseService.fetchSessionsForDate(assignmentId, today).count { (_, sessionData) ->
-                                        ((sessionData["status"] as? String) ?: "").equals("COMPLETED", ignoreCase = true)
-                                    }
-                                } catch (_: Exception) {
-                                    0
-                                }
-                                completedSessionsToday >= dailyFrequency
-                            }
-                            if (completedAssignmentsToday == assignments.size) UserStatus.ON_TRACK else UserStatus.NEEDS_ATTENTION
-                        }
-                    }
-                } catch (_: Exception) {
-                    patientStatusMap[patientId] = UserStatus.INACTIVE
-                }
-            }
-
-            allUsers = users.mapNotNull { (id, data) ->
-                val role = (data["role"] as? String)?.lowercase() ?: "patient"
-                if (userRole != "admin" && role != "patient") return@mapNotNull null
-                if (id == uid) return@mapNotNull null
-                val isBlocked = data["isBlocked"] as? Boolean ?: false
-
-                val firstName = data["firstName"] as? String ?: ""
-                val lastName = data["lastName"] as? String ?: ""
-                val name = "$firstName $lastName".trim().ifBlank { data["email"] as? String ?: "Unknown" }
-                val initials = "${firstName.firstOrNull() ?: ""}${lastName.firstOrNull() ?: ""}".uppercase().ifBlank { "?" }
-
-                val lastSeenRaw = data["lastSeen"]
-                val isOnline = try {
-                    when (lastSeenRaw) {
-                        is com.google.firebase.Timestamp -> {
-                            val lastSeenInstant = Instant.ofEpochSecond(lastSeenRaw.seconds)
-                            Duration.between(lastSeenInstant, Instant.now()).toMinutes() < 5
-                        }
-                        else -> false
-                    }
-                } catch (_: Exception) { false }
-
-                // Use computed status for patients, default to ON_TRACK for others
-                val status = when (role) {
-                    "admin", "doctor" -> UserStatus.ON_TRACK
-                    else -> patientStatusMap[id] ?: UserStatus.INACTIVE
-                }
-
-                val subtitle = when (role) {
-                    "admin" -> "Administrator"
-                    "doctor" -> data["speciality"] as? String ?: "Doctor"
-                    else -> (data["injuries"] as? List<*>)?.firstOrNull()?.toString() ?: data["primaryGoal"] as? String ?: "Patient"
-                } + if (isBlocked) " • Blocked" else ""
-
-                UserItem(id, name, subtitle, role, status, isOnline, initials)
-            }
-
-            errorMessage = null
-        } catch (e: Exception) {
-            errorMessage = ErrorHandler.getDisplayMessage(e, "load users")
-        }
-        isLoading = false
-        isRefreshing = false
-    }
-
-    LaunchedEffect(Unit) { loadData() }
+    LaunchedEffect(Unit) { viewModel.load() }
 
     // Auto-refresh when returning from patient profile / assignment screens
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                scope.launch { loadData() }
+                viewModel.load()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -197,8 +113,7 @@ fun PatientListScreen(
         PullToRefreshBox(
             isRefreshing = isRefreshing,
             onRefresh = {
-                isRefreshing = true
-                scope.launch { loadData() }
+                viewModel.refresh()
             },
             modifier = Modifier.padding(padding).fillMaxSize()
         ) {

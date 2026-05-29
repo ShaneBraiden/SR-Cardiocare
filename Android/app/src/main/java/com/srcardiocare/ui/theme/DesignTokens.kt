@@ -30,11 +30,11 @@ object DesignTokens {
         val PrimaryLight = Color(0xFFC5DFE2)  // Light greyish teal
 
         // Backgrounds - with grey undertones
-        val BackgroundLight = Color(0xFFF4F6F7)  // Slightly greyer background
+        val BackgroundLight = Color(0xFFE8EDEF)  // Light grey-teal — distinct from white cards
         val BackgroundDark = Color(0xFF1A2426)   // Dark grey-teal
 
         // Surfaces
-        val SurfaceLight = Color(0xFFFAFBFB)     // Off-white with grey tint
+        val SurfaceLight = Color(0xFFFFFFFF)     // White cards — pop against grey background
         val SurfaceDark = Color(0xFF252F31)      // Dark surface with teal undertone
 
         // Text

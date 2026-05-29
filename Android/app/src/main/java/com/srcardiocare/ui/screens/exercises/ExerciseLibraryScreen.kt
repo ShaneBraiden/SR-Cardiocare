@@ -39,7 +39,9 @@ import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.srcardiocare.core.security.InputValidator
+import com.srcardiocare.data.firebase.ExerciseRepository
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.data.firebase.UserRepository
 import com.srcardiocare.ui.components.ShimmerBox
 import com.srcardiocare.ui.components.rememberToast
 import com.srcardiocare.ui.theme.DesignTokens
@@ -77,22 +79,17 @@ fun ExerciseLibraryScreen(onBack: () -> Unit, onUpload: () -> Unit) {
             val uid = FirebaseService.currentUID
             if (uid != null) {
                 currentUserId = uid
-                val user = FirebaseService.fetchUser(uid)
-                currentUserRole = (user["role"] as? String ?: "").lowercase()
+                currentUserRole = UserRepository.getUser(uid).role
             }
 
-            val rawExercises = FirebaseService.fetchExercises()
-            allExercises = rawExercises.map { (id, data) ->
-                val name = data["name"] as? String ?: ""
-                val category = data["category"] as? String ?: ""
-                val difficulty = (data["difficultyLevel"] as? String ?: "").replaceFirstChar { it.uppercase() }
-                val durationSec = (data["durationSeconds"] as? Number)?.toInt() ?: 0
+            val rawExercises = ExerciseRepository.getExercises()
+            allExercises = rawExercises.map { exercise ->
+                val difficulty = exercise.difficultyLevel.replaceFirstChar { it.uppercase() }
+                val durationSec = exercise.durationSeconds
                 val mins = durationSec / 60
                 val secs = durationSec % 60
                 val duration = if (secs > 0) "$mins:${secs.toString().padStart(2, '0')}" else "$mins:00"
-                val uploadedBy = data["uploadedBy"] as? String ?: ""
-                val videoUrl = data["videoUrl"] as? String
-                ExLibItem(id, name, category, difficulty, duration, uploadedBy, videoUrl)
+                ExLibItem(exercise.id, exercise.name, exercise.category, difficulty, duration, exercise.uploadedBy, exercise.videoUrl)
             }
             val cats = allExercises.map { it.category }.distinct().sorted()
             categories = listOf("All") + cats

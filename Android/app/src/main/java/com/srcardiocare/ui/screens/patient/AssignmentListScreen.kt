@@ -23,15 +23,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.srcardiocare.core.security.ErrorHandler
-import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.data.model.*
 import com.srcardiocare.ui.components.SkeletonListRow
 import com.srcardiocare.ui.theme.DesignTokens
-import kotlinx.coroutines.launch
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
-import java.time.temporal.ChronoUnit
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -40,127 +38,17 @@ fun AssignmentListScreen(
     onHistoryTap: () -> Unit,
     onBack: () -> Unit
 ) {
-    var activeExercises by remember { mutableStateOf<List<ActiveExerciseItem>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
-    var isRefreshing by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
+    val viewModel: AssignmentListViewModel = viewModel()
+    val ui by viewModel.state.collectAsStateWithLifecycle()
+    val activeExercises = ui.activeExercises
+    val isLoading = ui.isLoading
+    val isRefreshing = ui.isRefreshing
+    val errorMessage = ui.errorMessage
 
-    val scope = rememberCoroutineScope()
     val today = LocalDate.now()
     val dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
 
-    suspend fun loadData() {
-        try {
-            val patientId = FirebaseService.currentUID ?: return
-
-            // Fetch all assignments for patient
-            val rawAssignments = FirebaseService.fetchAssignments(patientId)
-
-            // Fetch today's sessions
-            val todaySessions = FirebaseService.fetchTodaysSessions(patientId)
-            val sessionsByAssignment = todaySessions.groupBy { 
-                it.second["assignmentId"] as? String ?: "" 
-            }
-
-            val activeList = mutableListOf<ActiveExerciseItem>()
-            val historyList = mutableListOf<HistoryExerciseItem>()
-
-            for ((id, data) in rawAssignments) {
-                val assignment = parseAssignment(id, data)
-
-                val startDate = LocalDate.parse(assignment.startDate)
-                val endDate = LocalDate.parse(assignment.endDate)
-
-                // Skip if not yet started
-                if (today.isBefore(startDate)) continue
-
-                // Fetch all sessions to calculate daily history and today's status
-                val allSessions = FirebaseService.fetchAllSessionsForAssignment(assignment.id)
-                val groupedByDate = allSessions.groupBy { it.second["sessionDate"] as? String ?: "" }
-
-                // 1. Build History for all PAST days (from startDate up to yesterday, or endDate if expired)
-                val limitDate = if (today.isAfter(endDate)) endDate else today.minusDays(1)
-                var iterDate = startDate
-                while (!iterDate.isAfter(limitDate)) {
-                    val dateStr = iterDate.toString()
-                    val daysSessions = groupedByDate[dateStr] ?: emptyList()
-                    val completedSessions = daysSessions.count { it.second["status"] == "COMPLETED" }
-                    val totalPossible = assignment.dailyFrequency
-                    
-                    val completionRate = if (totalPossible > 0) {
-                        completedSessions.toFloat() / totalPossible
-                    } else 0f
-                    
-                    val historyStatus = when {
-                        completionRate >= assignment.completionThreshold -> AssignmentHistoryStatus.FULLY_COMPLETED
-                        completedSessions > 0 -> AssignmentHistoryStatus.PARTIALLY_COMPLETED
-                        else -> AssignmentHistoryStatus.MISSED
-                    }
-                    
-                    historyList.add(
-                        HistoryExerciseItem(
-                            assignment = assignment,
-                            status = historyStatus,
-                            completionRate = completionRate,
-                            sessionsCompleted = completedSessions,
-                            sessionsPossible = totalPossible,
-                            endDate = dateStr // We use 'endDate' field to store this specific history date
-                        )
-                    )
-                    iterDate = iterDate.plusDays(1)
-                }
-
-                // 2. If it's still active today, build Active list
-                if (!today.isAfter(endDate)) {
-                    // Active today
-                    val assignmentSessions = groupedByDate[today.toString()] ?: emptyList()
-                    val completedSessions = assignmentSessions.count { 
-                        it.second["status"] == "COMPLETED" 
-                    }
-                    val inProgressSession = assignmentSessions.find { 
-                        it.second["status"] == "IN_PROGRESS" 
-                    }
-
-                    val isDone = completedSessions >= assignment.dailyFrequency
-                    val daysUntilExpiry = ChronoUnit.DAYS.between(today, endDate).toInt()
-                    val expiryText = when {
-                        daysUntilExpiry == 0 -> "Expires today"
-                        daysUntilExpiry == 1 -> "Expires tomorrow"
-                        daysUntilExpiry <= 7 -> "Expires in $daysUntilExpiry days"
-                        else -> "Expires ${endDate.format(dateFormatter)}"
-                    }
-
-                    activeList.add(
-                        ActiveExerciseItem(
-                            assignment = assignment,
-                            sessionsToday = completedSessions,
-                            dailyTarget = assignment.dailyFrequency,
-                            isDoneToday = isDone,
-                            canStartSession = !isDone && inProgressSession == null,
-                            currentSession = inProgressSession?.let { parseSessionLog(it.first, it.second) },
-                            expiryText = expiryText,
-                            progressText = "$completedSessions/${assignment.dailyFrequency}"
-                        )
-                    )
-                }
-            }
-
-            // Sort: incomplete first, then done (strikethrough at bottom)
-            activeExercises = activeList.sortedBy { it.isDoneToday }
-            errorMessage = null
-
-        } catch (e: Exception) {
-            errorMessage = ErrorHandler.getDisplayMessage(e, "load assignments")
-        }
-        isLoading = false
-        isRefreshing = false
-    }
-
-
-
-    LaunchedEffect(Unit) {
-        loadData()
-    }
+    LaunchedEffect(Unit) { viewModel.load() }
 
     Scaffold(
         topBar = {
@@ -190,8 +78,7 @@ fun AssignmentListScreen(
         PullToRefreshBox(
             isRefreshing = isRefreshing,
             onRefresh = {
-                isRefreshing = true
-                scope.launch { loadData() }
+                viewModel.refresh()
             },
             modifier = Modifier.padding(padding).fillMaxSize()
         ) {
@@ -551,59 +438,3 @@ private fun HistoryExerciseCard(item: HistoryExerciseItem) {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// PARSERS
-// ═══════════════════════════════════════════════════════════════════════════════
-
-private fun parseAssignment(id: String, data: Map<String, Any?>): Assignment {
-    return Assignment(
-        id = id,
-        patientId = data["patientId"] as? String ?: "",
-        doctorId = data["doctorId"] as? String ?: "",
-        exerciseId = data["exerciseId"] as? String ?: "",
-        exerciseName = data["exerciseName"] as? String ?: "Exercise",
-        exerciseVideoUrl = data["exerciseVideoUrl"] as? String,
-        exerciseThumbnailUrl = data["exerciseThumbnailUrl"] as? String,
-        exerciseCategory = data["exerciseCategory"] as? String,
-        exerciseDifficulty = data["exerciseDifficulty"] as? String,
-        startDate = data["startDate"] as? String ?: LocalDate.now().toString(),
-        endDate = data["endDate"] as? String ?: LocalDate.now().plusDays(7).toString(),
-        dailyFrequency = ((data["dailyFrequency"] as? Number)?.toInt() ?: 3).coerceIn(1, 3),
-        sets = (data["sets"] as? Number)?.toInt() ?: 3,
-        reps = (data["reps"] as? Number)?.toInt() ?: 10,
-        restSeconds = (data["restSeconds"] as? Number)?.toInt() ?: 45,
-        instructions = data["instructions"] as? String,
-        completionThreshold = (data["completionThreshold"] as? Number)?.toFloat() ?: 0.8f,
-        isActive = data["isActive"] as? Boolean ?: true,
-        createdAt = (data["createdAt"] as? com.google.firebase.Timestamp)?.toDate()?.toString()
-    )
-}
-
-private fun parseSessionLog(id: String, data: Map<String, Any?>): SessionLog {
-    val setLogsRaw = data["setLogs"] as? List<*> ?: emptyList<Any>()
-    val setLogs = setLogsRaw.mapNotNull { raw ->
-        val map = raw as? Map<*, *> ?: return@mapNotNull null
-        SetLog(
-            setNumber = (map["setNumber"] as? Number)?.toInt() ?: 0,
-            startedAt = map["startedAt"] as? String,
-            completedAt = map["completedAt"] as? String,
-            videoWatchedSeconds = (map["videoWatchedSeconds"] as? Number)?.toInt() ?: 0,
-            repsCompleted = (map["repsCompleted"] as? Number)?.toInt()
-        )
-    }
-
-    return SessionLog(
-        id = id,
-        assignmentId = data["assignmentId"] as? String ?: "",
-        patientId = data["patientId"] as? String ?: "",
-        sessionDate = data["sessionDate"] as? String ?: LocalDate.now().toString(),
-        sessionNumber = (data["sessionNumber"] as? Number)?.toInt() ?: 1,
-        startedAt = (data["startedAt"] as? com.google.firebase.Timestamp)?.toDate()?.toString(),
-        completedAt = (data["completedAt"] as? com.google.firebase.Timestamp)?.toDate()?.toString(),
-        setsCompleted = (data["setsCompleted"] as? Number)?.toInt() ?: 0,
-        totalSets = (data["totalSets"] as? Number)?.toInt() ?: 3,
-        setLogs = setLogs,
-        status = SessionStatus.valueOf(data["status"] as? String ?: "IN_PROGRESS"),
-        feedbackId = data["feedbackId"] as? String
-    )
-}

@@ -28,7 +28,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.srcardiocare.data.firebase.FeedbackRepository
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.data.firebase.UserRepository
+import com.srcardiocare.data.model.PostWorkoutFeedback
 import com.srcardiocare.ui.components.InitialsAvatar
 import com.srcardiocare.ui.components.SkeletonBarChart
 import com.srcardiocare.ui.components.SkeletonListRow
@@ -51,7 +54,7 @@ fun PatientProfileScreen(
     var patientCondition by remember { mutableStateOf("") }
     var patientInitials by remember { mutableStateOf("") }
     var exerciseItems by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
-    var feedbacks by remember { mutableStateOf<List<Map<String, Any?>>>(emptyList()) }
+    var feedbacks by remember { mutableStateOf<List<PostWorkoutFeedback>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
     // New actions state
@@ -95,13 +98,10 @@ fun PatientProfileScreen(
     // Refresh function to reload patient data
     suspend fun loadPatientData() {
         try {
-            val userData = FirebaseService.fetchUser(patientId)
-            val firstName = userData["firstName"] as? String ?: ""
-            val lastName = userData["lastName"] as? String ?: ""
-            patientName = "$firstName $lastName".trim()
-            patientInitials = "${firstName.firstOrNull() ?: ""}${lastName.firstOrNull() ?: ""}".uppercase()
-            val injuries = (userData["injuries"] as? List<*>)?.firstOrNull()?.toString() ?: ""
-            patientCondition = injuries
+            val patient = UserRepository.getUser(patientId)
+            patientName = patient.fullName
+            patientInitials = "${patient.firstName.firstOrNull() ?: ""}${patient.lastName.firstOrNull() ?: ""}".uppercase()
+            patientCondition = patient.injuries.firstOrNull() ?: ""
 
             val plans = FirebaseService.fetchPlans(patientId)
             val activePlan = plans.firstOrNull { (it.second["isActive"] as? Boolean) == true }
@@ -116,7 +116,7 @@ fun PatientProfileScreen(
             val totalWorkouts = workouts.size
             
             try {
-                feedbacks = FirebaseService.fetchPatientFeedbacks(patientId).map { it.second }
+                feedbacks = FeedbackRepository.getPatientFeedbacks(patientId)
             } catch (e: Exception) { }
         } catch (_: Exception) { }
     }
@@ -126,8 +126,7 @@ fun PatientProfileScreen(
         try {
             val uid = FirebaseService.currentUID
             if (uid != null) {
-                val me = FirebaseService.fetchUser(uid)
-                currentUserRole = (me["role"] as? String ?: "").lowercase()
+                currentUserRole = UserRepository.getUser(uid).role
             }
         } catch (_: Exception) { }
 
@@ -135,14 +134,10 @@ fun PatientProfileScreen(
 
         // Fetch assigned doctor and all doctors (for admin picker)
         try {
-            val userData = FirebaseService.fetchUser(patientId)
-            currentAssignedDoctorId = userData["assignedDoctorId"] as? String ?: ""
+            currentAssignedDoctorId = UserRepository.getUser(patientId).assignedDoctorId ?: ""
             if (currentUserRole == "admin") {
-                val doctors = FirebaseService.fetchAllDoctors()
-                allDoctors = doctors.map { (id, data) ->
-                    val fName = data["firstName"] as? String ?: ""
-                    val lName = data["lastName"] as? String ?: ""
-                    id to "Dr. $lName".let { if (lName.isBlank()) fName else it }
+                allDoctors = UserRepository.getAllDoctors().map { doctor ->
+                    doctor.id to "Dr. ${doctor.lastName}".let { if (doctor.lastName.isBlank()) doctor.firstName else it }
                 }
             }
         } catch (_: Exception) { }
@@ -596,9 +591,9 @@ fun PatientProfileScreen(
                             verticalAlignment = Alignment.Bottom
                         ) {
                             recent.forEach { f ->
-                                val resp = (f["respiratoryDifficulty"] as? Number)?.toFloat() ?: 1f
-                                val stress = f["stress"] as? Boolean ?: false
-                                val strain = f["strain"] as? Boolean ?: false
+                                val resp = f.respiratoryDifficulty.toFloat()
+                                val stress = f.stress
+                                val strain = f.strain
                                 
                                 val barColor = if (stress || strain) DesignTokens.Colors.Warning else DesignTokens.Colors.Success
                                 val barHeight = (resp / 10f * 60f).coerceAtLeast(4f)

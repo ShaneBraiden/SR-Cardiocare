@@ -25,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.data.firebase.UserRepository
 import com.srcardiocare.ui.components.SkeletonListRow
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
@@ -59,36 +60,23 @@ fun AdminDoctorPatientsScreen(
     suspend fun loadData() {
         try {
             // Fetch doctor info
-            val doctorData = FirebaseService.fetchUser(doctorId)
-            val firstName = doctorData["firstName"] as? String ?: ""
-            val lastName = doctorData["lastName"] as? String ?: ""
-            doctorName = "Dr. $firstName $lastName".trim()
+            val doctor = UserRepository.getUser(doctorId)
+            doctorName = "Dr. ${doctor.fullName}".trim()
 
             // Fetch doctor's patients
-            val patientList = FirebaseService.fetchPatients(doctorId)
+            val patientList = UserRepository.getPatients(doctorId)
             
-            patients = patientList.mapNotNull { (patientId, data) ->
-                val pFirstName = data["firstName"] as? String ?: ""
-                val pLastName = data["lastName"] as? String ?: ""
-                val email = data["email"] as? String ?: ""
-                val name = "$pFirstName $pLastName".trim().ifBlank { email }
-                val initials = "${pFirstName.firstOrNull() ?: ""}${pLastName.firstOrNull() ?: ""}".uppercase().ifBlank { "?" }
+            patients = patientList.mapNotNull { patient ->
+                val email = patient.email
+                val name = patient.fullName.ifBlank { email }
+                val initials = "${patient.firstName.firstOrNull() ?: ""}${patient.lastName.firstOrNull() ?: ""}".uppercase().ifBlank { "?" }
 
                 // Check online status
-                val lastSeenRaw = data["lastSeen"]
-                val isOnline = try {
-                    when (lastSeenRaw) {
-                        is com.google.firebase.Timestamp -> {
-                            val lastSeenInstant = Instant.ofEpochSecond(lastSeenRaw.seconds)
-                            Duration.between(lastSeenInstant, Instant.now()).toMinutes() < 5
-                        }
-                        else -> false
-                    }
-                } catch (_: Exception) { false }
+                val isOnline = patient.isOnline
 
                 // Get assignment count and completion rate
                 val assignments = try {
-                    FirebaseService.fetchAssignments(patientId)
+                    FirebaseService.fetchAssignments(patient.id)
                 } catch (_: Exception) { emptyList() }
                 
                 val completedAssignments = assignments.count { (_, assignData) ->
@@ -100,7 +88,7 @@ fun AdminDoctorPatientsScreen(
                 } else 0f
 
                 DoctorPatientItem(
-                    id = patientId,
+                    id = patient.id,
                     name = name,
                     email = email,
                     initials = initials,

@@ -21,9 +21,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
-import com.google.firebase.Timestamp
 import com.srcardiocare.core.security.InputValidator
+import com.srcardiocare.data.firebase.ChatRepository
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.data.firebase.UserRepository
+import com.srcardiocare.data.model.ChatMessage
 import com.srcardiocare.ui.theme.DesignTokens
 import java.text.SimpleDateFormat
 import java.util.*
@@ -32,7 +34,7 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun PatientChatScreen(onBack: () -> Unit) {
-    var rawMessages by remember { mutableStateOf<List<Map<String, Any?>>>(emptyList()) }
+    var rawMessages by remember { mutableStateOf<List<ChatMessage>>(emptyList()) }
     var inputText by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -51,10 +53,7 @@ fun PatientChatScreen(onBack: () -> Unit) {
         val uid = FirebaseService.currentUID ?: return@LaunchedEffect
         currentUid = uid
         try {
-            val usr = FirebaseService.fetchUser(uid)
-            val f = usr["firstName"] as? String ?: ""
-            val l = usr["lastName"] as? String ?: ""
-            currentName = "$f $l".trim()
+            currentName = UserRepository.getUser(uid).fullName
         } catch (_: Exception) {}
 
         try {
@@ -62,7 +61,7 @@ fun PatientChatScreen(onBack: () -> Unit) {
         } catch (_: Exception) { }
 
         // The chat room ID is just the patient ID
-        FirebaseService.observeChatMessages(currentUid).collect { msgs ->
+        ChatRepository.observeChatMessagesTyped(currentUid).collect { msgs ->
             rawMessages = msgs
         }
     }
@@ -97,13 +96,12 @@ fun PatientChatScreen(onBack: () -> Unit) {
             ) {
                 item { Spacer(modifier = Modifier.height(DesignTokens.Spacing.SM)) }
                 items(rawMessages) { msg ->
-                    val senderId = msg["senderId"] as? String ?: ""
-                    val text = msg["text"] as? String ?: ""
+                    val senderId = msg.senderId
+                    val text = msg.text
                     val isMe = senderId == currentUid
                     
-                    val ts = msg["timestamp"] as? Timestamp
                     val sdf = SimpleDateFormat("hh:mm a", Locale.getDefault())
-                    val timeStr = ts?.toDate()?.let { sdf.format(it) } ?: ""
+                    val timeStr = msg.timestampMs?.let { sdf.format(java.util.Date(it)) } ?: ""
 
                     Box(
                         modifier = Modifier

@@ -23,7 +23,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.data.firebase.AssignmentRepository
+import com.srcardiocare.data.firebase.SessionRepository
 import com.srcardiocare.data.model.*
 import com.srcardiocare.ui.components.SkeletonListRow
 import com.srcardiocare.ui.theme.DesignTokens
@@ -48,47 +49,25 @@ fun PatientHistoryScreen(
     suspend fun loadData() {
         if (patientId.isBlank()) return
         try {
-            val rawAssignments = FirebaseService.fetchAssignments(patientId)
+            val assignments = AssignmentRepository.getAssignments(patientId)
             val historyList = mutableListOf<HistoryExerciseItem>()
 
-            for ((id, data) in rawAssignments) {
-                // Same parse logic manually here
-                val assignment = Assignment(
-                    id = id,
-                    patientId = data["patientId"] as? String ?: "",
-                    doctorId = data["doctorId"] as? String ?: "",
-                    exerciseId = data["exerciseId"] as? String ?: "",
-                    exerciseName = data["exerciseName"] as? String ?: "Exercise",
-                    exerciseVideoUrl = data["exerciseVideoUrl"] as? String,
-                    exerciseThumbnailUrl = data["exerciseThumbnailUrl"] as? String,
-                    exerciseCategory = data["exerciseCategory"] as? String,
-                    exerciseDifficulty = data["exerciseDifficulty"] as? String,
-                    startDate = data["startDate"] as? String ?: LocalDate.now().toString(),
-                    endDate = data["endDate"] as? String ?: LocalDate.now().plusDays(7).toString(),
-                    dailyFrequency = ((data["dailyFrequency"] as? Number)?.toInt() ?: 3).coerceIn(1, 3),
-                    sets = (data["sets"] as? Number)?.toInt() ?: 3,
-                    reps = (data["reps"] as? Number)?.toInt() ?: 10,
-                    restSeconds = (data["restSeconds"] as? Number)?.toInt() ?: 45,
-                    instructions = data["instructions"] as? String,
-                    completionThreshold = (data["completionThreshold"] as? Number)?.toFloat() ?: 0.8f,
-                    isActive = data["isActive"] as? Boolean ?: true,
-                    createdAt = (data["createdAt"] as? com.google.firebase.Timestamp)?.toDate()?.toString()
-                )
+            for (assignment in assignments) {
 
                 val startDate = LocalDate.parse(assignment.startDate)
                 val endDate = LocalDate.parse(assignment.endDate)
 
                 if (today.isBefore(startDate)) continue
 
-                val allSessions = FirebaseService.fetchAllSessionsForAssignment(assignment.id)
-                val groupedByDate = allSessions.groupBy { it.second["sessionDate"] as? String ?: "" }
+                val allSessions = SessionRepository.getAllSessionsForAssignment(assignment.id)
+                val groupedByDate = allSessions.groupBy { it.sessionDate }
 
                 val limitDate = if (today.isAfter(endDate)) endDate else today.minusDays(1)
                 var iterDate = startDate
                 while (!iterDate.isAfter(limitDate)) {
                     val dateStr = iterDate.toString()
                     val daysSessions = groupedByDate[dateStr] ?: emptyList()
-                    val completedSessions = daysSessions.count { it.second["status"] == "COMPLETED" }
+                    val completedSessions = daysSessions.count { it.status == SessionStatus.COMPLETED }
                     val totalPossible = assignment.dailyFrequency
                     
                     val completionRate = if (totalPossible > 0) {

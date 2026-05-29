@@ -25,6 +25,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.srcardiocare.core.security.ErrorHandler
+import com.srcardiocare.data.firebase.AssignmentRepository
 import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.ui.components.ShimmerBox
 import com.srcardiocare.ui.components.rememberToast
@@ -71,23 +72,21 @@ fun EditAssignmentScreen(
     // Load assignment
     LaunchedEffect(assignmentId) {
         try {
-            val data = FirebaseService.fetchAssignmentById(assignmentId)
-            if (data != null) {
-                exerciseName = data["exerciseName"] as? String ?: "Exercise"
-                exerciseCategory = data["exerciseCategory"] as? String
-                exerciseDifficulty = data["exerciseDifficulty"] as? String
-                patientId = data["patientId"] as? String ?: ""
-                sets = ((data["sets"] as? Number)?.toInt() ?: 3).coerceIn(1, 20)
-                reps = ((data["reps"] as? Number)?.toInt() ?: 10).coerceIn(1, 99)
-                dailyFrequency = ((data["dailyFrequency"] as? Number)?.toInt() ?: 1).coerceIn(1, 3)
-                restSeconds = ((data["restSeconds"] as? Number)?.toInt() ?: 45).coerceIn(5, 600)
-                val startIso = data["startDate"] as? String
-                val endIso = data["endDate"] as? String
-                startDateInput = runCatching { LocalDate.parse(startIso).format(DisplayDate) }
+            val assignment = AssignmentRepository.getAssignmentById(assignmentId)
+            if (assignment != null) {
+                exerciseName = assignment.exerciseName
+                exerciseCategory = assignment.exerciseCategory
+                exerciseDifficulty = assignment.exerciseDifficulty
+                patientId = assignment.patientId
+                sets = assignment.sets.coerceIn(1, 20)
+                reps = assignment.reps.coerceIn(1, 99)
+                dailyFrequency = assignment.dailyFrequency.coerceIn(1, 3)
+                restSeconds = assignment.restSeconds.coerceIn(5, 600)
+                startDateInput = runCatching { LocalDate.parse(assignment.startDate).format(DisplayDate) }
                     .getOrDefault(startDateInput)
-                endDateInput = runCatching { LocalDate.parse(endIso).format(DisplayDate) }
+                endDateInput = runCatching { LocalDate.parse(assignment.endDate).format(DisplayDate) }
                     .getOrDefault(endDateInput)
-                instructions = data["instructions"] as? String ?: ""
+                instructions = assignment.instructions ?: ""
             } else {
                 errorMessage = "Assignment not found"
             }

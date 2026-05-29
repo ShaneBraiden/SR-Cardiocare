@@ -17,15 +17,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.srcardiocare.core.auth.AuthManager
-import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.core.security.InputValidator
 import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.ui.components.InitialsAvatar
 import com.srcardiocare.ui.components.LogoutConfirmDialog
+import com.srcardiocare.ui.components.ProfileFormSkeleton
 import com.srcardiocare.ui.components.ProfileInfoRow
-import com.srcardiocare.ui.components.ShimmerBox
-import com.srcardiocare.ui.components.SkeletonProfileHeader
 import com.srcardiocare.ui.components.rememberToast
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
@@ -35,21 +35,16 @@ import kotlinx.coroutines.launch
 fun DoctorProfileScreen(
     onBack: () -> Unit,
     onLogout: () -> Unit,
-    onChangePassword: () -> Unit = {}
+    onChangePassword: () -> Unit = {},
+    viewModel: DoctorProfileViewModel = viewModel()
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val toast = rememberToast()
 
-    var firstName by remember { mutableStateOf("") }
-    var lastName by remember { mutableStateOf("") }
-    var email by remember { mutableStateOf("") }
-    var phone by remember { mutableStateOf("") }
-    var role by remember { mutableStateOf("") }
-    var licenseNumber by remember { mutableStateOf("") }
-    var isLoading by remember { mutableStateOf(true) }
-    var isSaving by remember { mutableStateOf(false) }
+    val ui by viewModel.state.collectAsStateWithLifecycle()
+
     var isEditing by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
 
@@ -57,20 +52,6 @@ fun DoctorProfileScreen(
     var editLastName by remember { mutableStateOf("") }
     var editPhone by remember { mutableStateOf("") }
     var editLicenseNumber by remember { mutableStateOf("") }
-
-    LaunchedEffect(Unit) {
-        try {
-            val uid = FirebaseService.currentUID ?: return@LaunchedEffect
-            val data = FirebaseService.fetchUser(uid)
-            firstName = data["firstName"] as? String ?: ""
-            lastName = data["lastName"] as? String ?: ""
-            email = data["email"] as? String ?: ""
-            phone = data["phone"] as? String ?: ""
-            role = (data["role"] as? String ?: "").replaceFirstChar { it.uppercase() }
-            licenseNumber = data["licenseNumber"] as? String ?: ""
-        } catch (_: Exception) { }
-        isLoading = false
-    }
 
     LogoutConfirmDialog(
         show = showLogoutDialog,
@@ -83,49 +64,29 @@ fun DoctorProfileScreen(
     )
 
     fun beginEdit() {
-        editFirstName = firstName
-        editLastName = lastName
-        editPhone = phone
-        editLicenseNumber = licenseNumber
+        editFirstName = ui.firstName
+        editLastName = ui.lastName
+        editPhone = ui.phone
+        editLicenseNumber = ui.licenseNumber
         isEditing = true
     }
 
     fun saveEdits() {
-        val nameValidation = InputValidator.validateName(
-            "${editFirstName.trim()} ${editLastName.trim()}".trim(),
-            "Name"
-        )
-        if (!nameValidation.isValid) {
-            scope.launch { snackbarHostState.showSnackbar(nameValidation.errorMessage ?: "Invalid name") }
-            return
-        }
-        val phoneValidation = InputValidator.validatePhone(editPhone)
-        if (!phoneValidation.isValid) {
-            scope.launch { snackbarHostState.showSnackbar(phoneValidation.errorMessage ?: "Invalid phone") }
-            return
-        }
-        isSaving = true
-        scope.launch {
-            try {
-                val updates = mutableMapOf<String, Any>(
-                    "firstName" to editFirstName.trim(),
-                    "lastName" to editLastName.trim(),
-                    "phone" to phoneValidation.sanitizedValue,
-                    "licenseNumber" to editLicenseNumber.trim()
-                )
-                FirebaseService.updateUser(updates)
-                firstName = editFirstName.trim()
-                lastName = editLastName.trim()
-                phone = phoneValidation.sanitizedValue
-                licenseNumber = editLicenseNumber.trim()
+        viewModel.save(
+            editFirstName = editFirstName,
+            editLastName = editLastName,
+            editPhone = editPhone,
+            editLicenseNumber = editLicenseNumber,
+            onValidationError = { msg -> scope.launch { snackbarHostState.showSnackbar(msg) } },
+            onSuccess = {
                 isEditing = false
                 toast("Profile updated")
-            } catch (e: Exception) {
+            },
+            onError = { msg ->
                 toast("Failed to update profile")
-                snackbarHostState.showSnackbar(ErrorHandler.getDisplayMessage(e, "update profile"))
+                scope.launch { snackbarHostState.showSnackbar(msg) }
             }
-            isSaving = false
-        }
+        )
     }
 
     Scaffold(
@@ -138,7 +99,7 @@ fun DoctorProfileScreen(
                     }
                 },
                 actions = {
-                    if (!isEditing && !isLoading) {
+                    if (!isEditing && !ui.isLoading) {
                         IconButton(onClick = { beginEdit() }) {
                             Icon(Icons.Default.Edit, contentDescription = "Edit profile")
                         }
@@ -153,7 +114,7 @@ fun DoctorProfileScreen(
         containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
 
-        if (isLoading) {
+        if (ui.isLoading) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -161,17 +122,7 @@ fun DoctorProfileScreen(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = DesignTokens.Spacing.XL)
             ) {
-                SkeletonProfileHeader()
-                Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
-                repeat(5) {
-                    ShimmerBox(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp),
-                        shape = RoundedCornerShape(DesignTokens.Radius.Base)
-                    )
-                    Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
-                }
+                ProfileFormSkeleton()
             }
             return@Scaffold
         }
@@ -187,13 +138,13 @@ fun DoctorProfileScreen(
         ) {
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.XL))
 
-            val initials = "${firstName.firstOrNull() ?: ""}${lastName.firstOrNull() ?: ""}".uppercase()
+            val initials = "${ui.firstName.firstOrNull() ?: ""}${ui.lastName.firstOrNull() ?: ""}".uppercase()
             InitialsAvatar(initials = initials.ifBlank { "?" }, size = 88.dp)
 
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.MD))
 
             Text(
-                text = if (role.equals("Doctor", ignoreCase = true)) "Dr. $firstName $lastName" else "$firstName $lastName",
+                text = if (ui.role.equals("Doctor", ignoreCase = true)) "Dr. ${ui.firstName} ${ui.lastName}" else "${ui.firstName} ${ui.lastName}",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground
@@ -207,7 +158,7 @@ fun DoctorProfileScreen(
                     .padding(horizontal = 14.dp, vertical = 4.dp)
             ) {
                 Text(
-                    role,
+                    ui.role,
                     style = MaterialTheme.typography.labelMedium,
                     color = DesignTokens.Colors.PrimaryDark,
                     fontWeight = FontWeight.SemiBold
@@ -249,7 +200,7 @@ fun DoctorProfileScreen(
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
                         )
-                        if (role.equals("Doctor", ignoreCase = true)) {
+                        if (ui.role.equals("Doctor", ignoreCase = true)) {
                             Spacer(modifier = Modifier.height(DesignTokens.Spacing.SM))
                             OutlinedTextField(
                                 value = editLicenseNumber,
@@ -260,15 +211,15 @@ fun DoctorProfileScreen(
                             )
                         }
                         Spacer(modifier = Modifier.height(DesignTokens.Spacing.SM))
-                        ProfileInfoRow(label = "Email (not editable)", value = email, showDivider = false)
+                        ProfileInfoRow(label = "Email (not editable)", value = ui.email, showDivider = false)
                     } else {
-                        ProfileInfoRow(label = "First Name", value = firstName)
-                        ProfileInfoRow(label = "Last Name", value = lastName)
-                        ProfileInfoRow(label = "Email", value = email)
-                        ProfileInfoRow(label = "Phone", value = phone.ifBlank { "—" })
-                        ProfileInfoRow(label = "Role", value = role, showDivider = role.equals("Doctor", ignoreCase = true) && licenseNumber.isNotBlank())
-                        if (role.equals("Doctor", ignoreCase = true) && licenseNumber.isNotBlank()) {
-                            ProfileInfoRow(label = "License Number", value = licenseNumber, showDivider = false)
+                        ProfileInfoRow(label = "First Name", value = ui.firstName)
+                        ProfileInfoRow(label = "Last Name", value = ui.lastName)
+                        ProfileInfoRow(label = "Email", value = ui.email)
+                        ProfileInfoRow(label = "Phone", value = ui.phone.ifBlank { "—" })
+                        ProfileInfoRow(label = "Role", value = ui.role, showDivider = ui.role.equals("Doctor", ignoreCase = true) && ui.licenseNumber.isNotBlank())
+                        if (ui.role.equals("Doctor", ignoreCase = true) && ui.licenseNumber.isNotBlank()) {
+                            ProfileInfoRow(label = "License Number", value = ui.licenseNumber, showDivider = false)
                         }
                     }
                 }
@@ -285,7 +236,7 @@ fun DoctorProfileScreen(
                         onClick = { isEditing = false },
                         modifier = Modifier.weight(1f).height(52.dp),
                         shape = RoundedCornerShape(DesignTokens.Radius.Button),
-                        enabled = !isSaving
+                        enabled = !ui.isSaving
                     ) { Text("Cancel") }
 
                     Button(
@@ -293,9 +244,9 @@ fun DoctorProfileScreen(
                         modifier = Modifier.weight(1f).height(52.dp),
                         shape = RoundedCornerShape(DesignTokens.Radius.Button),
                         colors = ButtonDefaults.buttonColors(containerColor = DesignTokens.Colors.Primary),
-                        enabled = !isSaving
+                        enabled = !ui.isSaving
                     ) {
-                        if (isSaving) CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                        if (ui.isSaving) CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
                         else Text("Save", fontWeight = FontWeight.SemiBold)
                     }
                 }

@@ -54,13 +54,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FieldValue
 import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.core.security.InputValidator
@@ -68,7 +69,6 @@ import com.srcardiocare.data.firebase.FirebaseService
 import com.srcardiocare.ui.components.SkeletonListRow
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
-import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
@@ -83,12 +83,12 @@ private data class DayItem(
     val fullDate: LocalDate
 )
 
-private data class SelectablePatient(
+data class SelectablePatient(
     val id: String,
     val name: String
 )
 
-private data class ApptItem(
+data class ApptItem(
     val id: String,
     val time: String,
     val title: String,
@@ -116,7 +116,7 @@ private fun currentWeekDays(): List<DayItem> {
     }
 }
 
-private fun statusColor(status: String): Color {
+fun statusColor(status: String): Color {
     return when (status.lowercase()) {
         "confirmed", "completed" -> DesignTokens.Colors.Success
         "cancelled" -> DesignTokens.Colors.Error
@@ -130,28 +130,6 @@ private fun prettyStatus(status: String): String {
     return status.replaceFirstChar { it.uppercase() }
 }
 
-private fun parseDateTime(raw: Any?): Triple<String, LocalDate?, Long?> {
-    val timeFormatter = DateTimeFormatter.ofPattern("h:mm a")
-    return when (raw) {
-        is String -> {
-            try {
-                val instant = Instant.parse(raw)
-                val zdt = instant.atZone(ZoneId.systemDefault())
-                Triple(zdt.format(timeFormatter), zdt.toLocalDate(), zdt.toInstant().toEpochMilli())
-            } catch (_: Exception) {
-                Triple(raw, null, null)
-            }
-        }
-
-        is Timestamp -> {
-            val instant = raw.toDate().toInstant()
-            val zdt = instant.atZone(ZoneId.systemDefault())
-            Triple(zdt.format(timeFormatter), zdt.toLocalDate(), zdt.toInstant().toEpochMilli())
-        }
-
-        else -> Triple("", null, null)
-    }
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -159,14 +137,15 @@ fun ScheduleScreen(onBack: () -> Unit) {
     var selectedDay by remember { mutableIntStateOf(LocalDate.now().dayOfWeek.value - 1) }
     val days = remember { currentWeekDays() }
 
-    var appointments by remember { mutableStateOf<List<ApptItem>>(emptyList()) }
-    var patients by remember { mutableStateOf<List<SelectablePatient>>(emptyList()) }
-
-    var isLoading by remember { mutableStateOf(true) }
-    var loadError by remember { mutableStateOf<String?>(null) }
-    var userRole by remember { mutableStateOf("") }
-    var currentUid by remember { mutableStateOf<String?>(null) }
-    var assignedDoctorId by remember { mutableStateOf<String?>(null) }
+    val viewModel: ScheduleViewModel = viewModel()
+    val ui by viewModel.state.collectAsStateWithLifecycle()
+    val appointments = ui.appointments
+    val patients = ui.patients
+    val isLoading = ui.isLoading
+    val loadError = ui.loadError
+    val userRole = ui.userRole
+    val currentUid = ui.currentUid
+    val assignedDoctorId = ui.assignedDoctorId
 
     var showAddDialog by remember { mutableStateOf(false) }
     var apptHour by remember { mutableStateOf("10") }
@@ -176,114 +155,10 @@ fun ScheduleScreen(onBack: () -> Unit) {
     var patientMenuExpanded by remember { mutableStateOf(false) }
     var isSaving by remember { mutableStateOf(false) }
 
-    var reloadKey by remember { mutableIntStateOf(0) }
-
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    suspend fun resolveUserName(uid: String?, cache: MutableMap<String, String>): String {
-        if (uid.isNullOrBlank()) return "Unknown"
-        cache[uid]?.let { return it }
-
-        return try {
-            val user = FirebaseService.fetchUser(uid)
-            val first = user["firstName"] as? String ?: ""
-            val last = user["lastName"] as? String ?: ""
-            val role = (user["role"] as? String ?: "").lowercase()
-            val base = "$first $last".trim().ifBlank { "Unknown" }
-            val result = if (role == "doctor") "Dr. $base" else base
-            cache[uid] = result
-            result
-        } catch (_: Exception) {
-            "Unknown"
-        }
-    }
-
-    suspend fun loadSchedule() {
-        try {
-            val uid = FirebaseService.currentUID
-            if (uid == null) {
-                loadError = "Not signed in"
-                appointments = emptyList()
-                patients = emptyList()
-                isLoading = false
-                return
-            }
-            currentUid = uid
-
-            val userData = FirebaseService.fetchUser(uid)
-            val role = (userData["role"] as? String ?: "patient").lowercase()
-            userRole = role
-            assignedDoctorId = userData["assignedDoctorId"] as? String
-
-            patients = if (role == "doctor") {
-                FirebaseService.fetchPatients(uid).map { (patientId, data) ->
-                    val first = data["firstName"] as? String ?: ""
-                    val last = data["lastName"] as? String ?: ""
-                    SelectablePatient(patientId, "$first $last".trim().ifBlank { "Unknown" })
-                }.sortedBy { it.name }
-            } else if (role == "admin") {
-                FirebaseService.fetchAllPatients().map { (patientId, data) ->
-                    val first = data["firstName"] as? String ?: ""
-                    val last = data["lastName"] as? String ?: ""
-                    SelectablePatient(patientId, "$first $last".trim().ifBlank { "Unknown" })
-                }.sortedBy { it.name }
-            } else {
-                emptyList()
-            }
-
-            val rawAppts = try {
-                FirebaseService.fetchAppointments(uid, role)
-            } catch (_: Exception) {
-                FirebaseService.fetchAppointmentsUnordered(uid, role)
-            }
-
-            val nameCache = mutableMapOf<String, String>()
-            patients.forEach { nameCache[it.id] = it.name }
-
-            appointments = rawAppts.map { (id, data) ->
-                val dateTime = parseDateTime(data["dateTime"])
-                val status = (data["status"] as? String ?: "scheduled").lowercase()
-                val type = data["type"] as? String ?: "Appointment"
-                val notes = data["notes"] as? String ?: ""
-                val patientId = data["patientId"] as? String
-                val doctorId = data["doctorId"] as? String
-                val requestedByRole = (data["requestedByRole"] as? String ?: "doctor").lowercase()
-
-                val title = if (role == "doctor" || role == "admin") {
-                    resolveUserName(patientId, nameCache)
-                } else {
-                    resolveUserName(doctorId, nameCache)
-                }
-
-                ApptItem(
-                    id = id,
-                    time = dateTime.first,
-                    title = title,
-                    type = type,
-                    notes = notes,
-                    status = status,
-                    color = statusColor(status),
-                    apptDate = dateTime.second,
-                    apptEpochMs = dateTime.third,
-                    patientId = patientId,
-                    doctorId = doctorId,
-                    requestedByRole = requestedByRole
-                )
-            }.sortedBy { it.apptEpochMs ?: Long.MAX_VALUE }
-
-            loadError = null
-        } catch (e: Exception) {
-            loadError = ErrorHandler.getDisplayMessage(e, "load schedule")
-        }
-
-        isLoading = false
-    }
-
-    LaunchedEffect(reloadKey) {
-        isLoading = true
-        loadSchedule()
-    }
+    LaunchedEffect(Unit) { viewModel.load() }
 
     val selectedDate = days.getOrNull(selectedDay)?.fullDate
     val filteredAppts = if (selectedDate != null) {
@@ -507,7 +382,7 @@ fun ScheduleScreen(onBack: () -> Unit) {
                                 apptHour = "10"
                                 apptMinute = "00"
                                 selectedPatientId = null
-                                reloadKey++
+                                viewModel.load()
                             } catch (e: Exception) {
                                 snackbarHostState.showSnackbar(ErrorHandler.getDisplayMessage(e, "create appointment"))
                             }
@@ -648,10 +523,7 @@ fun ScheduleScreen(onBack: () -> Unit) {
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.height(16.dp))
-                            TextButton(onClick = {
-                                isLoading = true
-                                scope.launch { loadSchedule() }
-                            }) {
+                            TextButton(onClick = { viewModel.load() }) {
                                 Text("Retry")
                             }
                         }
@@ -754,7 +626,7 @@ fun ScheduleScreen(onBack: () -> Unit) {
                                                                 action = "accepted"
                                                             )
                                                             snackbarHostState.showSnackbar("Appointment accepted")
-                                                            reloadKey++
+                                                            viewModel.load()
                                                         } catch (e: Exception) {
                                                             snackbarHostState.showSnackbar(
                                                                 ErrorHandler.getDisplayMessage(e, "accept appointment")
@@ -779,7 +651,7 @@ fun ScheduleScreen(onBack: () -> Unit) {
                                                                 action = "declined"
                                                             )
                                                             snackbarHostState.showSnackbar("Appointment declined")
-                                                            reloadKey++
+                                                            viewModel.load()
                                                         } catch (e: Exception) {
                                                             snackbarHostState.showSnackbar(
                                                                 ErrorHandler.getDisplayMessage(e, "decline appointment")
@@ -808,7 +680,7 @@ fun ScheduleScreen(onBack: () -> Unit) {
                                                             action = "cancelled"
                                                         )
                                                         snackbarHostState.showSnackbar("Request cancelled")
-                                                        reloadKey++
+                                                        viewModel.load()
                                                     } catch (e: Exception) {
                                                         snackbarHostState.showSnackbar(
                                                             ErrorHandler.getDisplayMessage(e, "cancel request")

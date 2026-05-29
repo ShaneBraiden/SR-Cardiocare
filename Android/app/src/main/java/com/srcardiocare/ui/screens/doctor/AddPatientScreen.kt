@@ -18,6 +18,7 @@ import com.srcardiocare.core.security.ErrorHandler
 import com.srcardiocare.core.security.InputValidator
 import com.srcardiocare.core.security.PasswordGenerator
 import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.data.firebase.UserRepository
 import com.srcardiocare.ui.components.rememberToast
 import com.srcardiocare.ui.theme.DesignTokens
 import kotlinx.coroutines.launch
@@ -234,7 +235,7 @@ fun AddPatientScreen(onSaved: () -> Unit, onBack: () -> Unit) {
                             }
                             extraFields["gender"] = genders[selectedGender]
                             if (creatingUserUid != null) {
-                                val creatorRole = (FirebaseService.fetchUser(creatingUserUid)["role"] as? String ?: "").lowercase()
+                                val creatorRole = UserRepository.getUser(creatingUserUid).role
                                 if (creatorRole == "doctor") {
                                     extraFields["assignedDoctorId"] = creatingUserUid
                                 }

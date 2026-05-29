@@ -29,7 +29,9 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.srcardiocare.core.security.ErrorHandler
-import com.srcardiocare.data.firebase.FirebaseService
+import com.srcardiocare.data.firebase.AssignmentRepository
+import com.srcardiocare.data.firebase.SessionRepository
+import com.srcardiocare.data.firebase.UserRepository
 import com.srcardiocare.data.model.AssignmentHistoryStatus
 import com.srcardiocare.ui.components.SkeletonListRow
 import com.srcardiocare.ui.theme.DesignTokens
@@ -86,38 +88,38 @@ fun AdminPatientAssignmentsScreen(
     suspend fun loadData() {
         try {
             // Fetch patient info
-            val patientData = FirebaseService.fetchUser(patientId)
-            val firstName = patientData["firstName"] as? String ?: ""
-            val lastName = patientData["lastName"] as? String ?: ""
+            val patient = UserRepository.getUser(patientId)
+            val firstName = patient.firstName
+            val lastName = patient.lastName
             patientName = "$firstName $lastName".trim().ifBlank { "Patient" }
 
             // Fetch all assignments for patient
-            val rawAssignments = FirebaseService.fetchAssignments(patientId)
+            val assignments = AssignmentRepository.getAssignments(patientId)
 
             // Group by end date
             val dateMap = mutableMapOf<LocalDate, MutableList<PatientAssignmentItem>>()
 
-            for ((id, data) in rawAssignments) {
-                val exerciseName = data["exerciseName"] as? String ?: "Unknown Exercise"
-                val sets = (data["sets"] as? Long)?.toInt() ?: 3
-                val reps = (data["reps"] as? Long)?.toInt() ?: 10
-                val startDateStr = data["startDate"] as? String ?: continue
-                val endDateStr = data["endDate"] as? String ?: continue
-                val dailyFrequency = ((data["dailyFrequency"] as? Long)?.toInt() ?: 3).coerceIn(1, 3)
+            for (assignment in assignments) {
+                val exerciseName = assignment.exerciseName
+                val sets = assignment.sets
+                val reps = assignment.reps
+                val startDateStr = assignment.startDate
+                val endDateStr = assignment.endDate
+                val dailyFrequency = assignment.dailyFrequency
 
                 val startDate = try { LocalDate.parse(startDateStr) } catch (_: Exception) { continue }
                 val endDate = try { LocalDate.parse(endDateStr) } catch (_: Exception) { continue }
 
                 // Fetch sessions for this assignment
                 val allSessions = try {
-                    FirebaseService.fetchAllSessionsForAssignment(id)
+                    SessionRepository.getAllSessionsForAssignment(assignment.id)
                 } catch (_: Exception) { emptyList() }
 
-                val completedSessions = allSessions.count { it.second["status"] == "COMPLETED" }
+                val completedSessions = allSessions.count { it.status == com.srcardiocare.data.model.SessionStatus.COMPLETED }
                 val todaySessions = allSessions.filter {
-                    it.second["sessionDate"] == today.toString()
+                    it.sessionDate == today.toString()
                 }
-                val completedToday = todaySessions.count { it.second["status"] == "COMPLETED" }
+                val completedToday = todaySessions.count { it.status == com.srcardiocare.data.model.SessionStatus.COMPLETED }
 
                 val totalDays = ChronoUnit.DAYS.between(startDate, endDate).toInt() + 1
                 val totalPossible = totalDays * dailyFrequency
@@ -133,7 +135,7 @@ fun AdminPatientAssignmentsScreen(
                 }
 
                 val item = PatientAssignmentItem(
-                    id = id,
+                    id = assignment.id,
                     exerciseName = exerciseName,
                     sets = sets,
                     reps = reps,

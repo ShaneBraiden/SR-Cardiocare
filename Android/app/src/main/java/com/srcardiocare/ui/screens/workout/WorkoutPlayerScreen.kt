@@ -124,23 +124,17 @@ fun WorkoutPlayerScreen(
         onDispose { exoPlayer?.release() }
     }
 
-    // Handle fullscreen orientation - only rotate for landscape videos
+    // Lock fullscreen orientation to the video's aspect ratio. YouTube plays in a
+    // WebView that can't report its size, so we leave those free to rotate.
     val activity = context as? Activity
-    DisposableEffect(isFullscreen, videoOrientation) {
+    DisposableEffect(isFullscreen, videoOrientation, isYoutube) {
         if (isFullscreen) {
-            // Only force landscape if the video is landscape oriented
-            when (videoOrientation) {
-                VideoOrientation.LANDSCAPE -> {
-                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                }
-                VideoOrientation.PORTRAIT -> {
-                    // Keep portrait for portrait videos
-                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                }
-                VideoOrientation.SQUARE -> {
-                    // Let user decide for square videos
-                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                }
+            activity?.requestedOrientation = if (isYoutube) {
+                ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            } else when (videoOrientation) {
+                VideoOrientation.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                VideoOrientation.PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                VideoOrientation.SQUARE -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             }
         } else {
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
@@ -148,6 +142,16 @@ fun WorkoutPlayerScreen(
         onDispose {
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
+    }
+
+    // Auto-enter fullscreen once a set's video is playing, and auto-exit when the set
+    // ends so the set-complete / workout-done popups (rendered below) are visible.
+    // Keyed on currentSet so a manual exit mid-set isn't immediately overridden, but a
+    // new set re-enters fullscreen.
+    LaunchedEffect(currentSet, phase, isVideoLoading) {
+        isFullscreen = phase == PlayerWorkoutPhase.WATCHING &&
+            !isVideoLoading &&
+            !videoUrl.isNullOrBlank()
     }
 
     // Handle back from fullscreen
@@ -192,6 +196,29 @@ fun WorkoutPlayerScreen(
                     contentDescription = "Exit Fullscreen",
                     tint = Color.White,
                     modifier = Modifier.size(32.dp)
+                )
+            }
+
+            // Finish control — lets the user complete a set from fullscreen. Required for
+            // YouTube videos, which give no end-of-playback callback to auto-advance.
+            Button(
+                onClick = {
+                    phase = if (currentSet < totalSets) {
+                        PlayerWorkoutPhase.SET_COMPLETE
+                    } else {
+                        PlayerWorkoutPhase.ALL_SETS_DONE
+                    }
+                },
+                enabled = phase == PlayerWorkoutPhase.WATCHING,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(16.dp),
+                shape = RoundedCornerShape(DesignTokens.Radius.Base),
+                colors = ButtonDefaults.buttonColors(containerColor = DesignTokens.Colors.Primary)
+            ) {
+                Text(
+                    if (currentSet < totalSets) "Finish Set" else "Complete Workout",
+                    fontWeight = FontWeight.SemiBold
                 )
             }
         }
